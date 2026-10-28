@@ -63,6 +63,26 @@ Available velocity tracking tasks:
   - Unitree-A2-Flat
   - Unitree-R1-Flat
 
+#### MASQ Go2 locomotion
+
+The MASQ multi-agent task from `agent/instructions.md` is registered as
+`Unitree-Go2-MASQ-Flat`. It uses four shared-parameter leg policies, a
+four-head global critic, gait-conditioned commands, and the MASQ reward table
+from `agent/reward.yaml`.
+
+For a CPU smoke test:
+
+```bash
+XDG_CACHE_HOME=/tmp/laserhammer-cache \
+MPLCONFIGDIR=/tmp/mpl \
+python scripts/train.py Unitree-Go2-MASQ-Flat \
+  --env.scene.num-envs=4 --agent.max-iterations=2 --gpu-ids None
+```
+
+For GPU training, use the same task with `--gpu-ids all` and a larger number
+of environments, for example `--env.scene.num-envs=4096`. Checkpoints and the
+folded `(140 -> 12)` policy export are written under `logs/rsl_rl/go2_masq/`.
+
 > [!NOTE]
 > For more details, refer to the mjlab documentation:
 > [mjlab documentation](https://mujocolab.github.io/mjlab/index.html).

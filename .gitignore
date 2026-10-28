@@ -12,3 +12,19 @@ deploy/robots/r1/build
 deploy/robots/a2/build
 src/assets/motions/g1/dance1_subject2.npz
 simulate/build
+
+# Local Python environments, caches, and tooling state.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.hypothesis/
+.vscode/
+
+# Local experiment/runtime artifacts.
+*.log
+*.tmp
+.DS_Store
