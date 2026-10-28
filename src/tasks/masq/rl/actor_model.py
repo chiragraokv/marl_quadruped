@@ -96,11 +96,15 @@ class MASQActorModel(RNNModel):
     return tuple(params)
 
   def get_kl_divergence(self, old_params, new_params):
-    # rsl_rl's generic helper interprets the first dimension as the batch.
-    # MASQ recurrent batches are time-major, so flatten T and B while keeping
-    # the four independent leg distributions explicit.
-    flattened_old = tuple(p.reshape(-1, 4, *p.shape[-1:]) for p in old_params)
-    flattened_new = tuple(p.reshape(-1, 4, *p.shape[-1:]) for p in new_params)
+    # Distribution.kl_divergence expects the same batch shape for old and new
+    # parameters.  Rollout parameters can be [T, B, 4, D], while parameters
+    # produced during the update may already be [B, 4, D].  Flatten time,
+    # environments, and legs into one distribution batch in both cases.
+    def flatten_params(params):
+      return tuple(p.reshape(-1, p.shape[-1]) for p in params)
+
+    flattened_old = flatten_params(old_params)
+    flattened_new = flatten_params(new_params)
     return self.distribution.kl_divergence(flattened_old, flattened_new)
 
   def as_onnx(self, verbose: bool):

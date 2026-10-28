@@ -68,8 +68,8 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   }
   cfg.events.update({
     "body_mass_masq": EventTermCfg(
-      func=dr.body_mass, mode="startup",
-      params={"ranges": (0.8, 1.2), "operation": "scale",
+      func=dr.pseudo_inertia, mode="startup",
+      params={"alpha_range": (0.8, 1.2),
               "asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
     "motor_strength_masq": EventTermCfg(
       func=dr.pd_gains, mode="startup",

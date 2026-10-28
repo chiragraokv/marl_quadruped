@@ -23,6 +23,7 @@ __pycache__/
 .coverage
 .hypothesis/
 .vscode/
+.cache/
 
 # Local experiment/runtime artifacts.
 *.log

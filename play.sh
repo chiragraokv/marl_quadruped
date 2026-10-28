@@ -8,13 +8,14 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 CHECKPOINT="$1"
 shift
-source .venv/bin/activate
+source "$REPO_ROOT/.venv/bin/activate"
 
-XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/laserhammer-cache}" \
-MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/mpl}" \
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$REPO_ROOT/.cache}" \
+MPLCONFIGDIR="${MPLCONFIGDIR:-$REPO_ROOT/.cache/mpl}" \
 python scripts/play.py Unitree-Go2-MASQ-Flat \
   --checkpoint-file "$CHECKPOINT" \
   "$@"
