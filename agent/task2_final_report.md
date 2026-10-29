@@ -60,12 +60,12 @@ and playback wrappers. A two-iteration CPU smoke test completed successfully.
 1. `bash -n train.sh play.sh`
    - Passed; both shell wrappers are syntactically valid.
 2. `.venv/bin/python tests/test_masq_task2.py`
-   - Passed: 2 tests.
+   - Passed: 5 tests after the reward-v2 update.
 3. `.venv/bin/python -m py_compile src/tasks/masq/masq_env_cfg.py src/tasks/masq/rl/runner.py src/tasks/masq/rl/actor_model.py`
    - Passed.
 4. `WANDB_MODE=disabled MASQ_GPU_IDS=cpu MASQ_NUM_ENVS=4 ./train.sh --agent.max-iterations=2`
    - Passed with exit code 0.
-   - Environment initialized with 20 reward terms.
+   - Initial v1 smoke test initialized with 20 reward terms.
    - PPO completed iterations 0 and 1 (192 total simulator steps).
    - Output included all four separate new `Episode_Reward/*` values,
      `Mean reward`, and `Metrics/angular_momentum_mean`.
@@ -116,3 +116,15 @@ MASQ_DEVICE=gpu MASQ_GPU_IDS=0 \
   stronger than necessary for the desired gait.
 - Playback requires a display/rendering-capable target and an actual checkpoint,
   so only its shell syntax and argument routing were validated here.
+
+## Reward v2 update
+
+`agent/reward_v2.yaml` was applied without deleting earlier terms. Renamed v2
+terms map to their existing implementations, omitted terms remain registered
+with weight zero, and two new terms were added: fixed nominal `base_height`
+error and touchdown-based `feet_air_time`. `MASQ_REWARD_SCALES` remains the
+single source of truth for all configured weights.
+
+The v2 configuration was then smoke-tested for one CPU iteration with 4
+environments. All 22 retained/new reward terms initialized, the new functions
+executed, PPO completed 96 simulator steps, and the run exited successfully.

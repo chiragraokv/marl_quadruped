@@ -76,6 +76,12 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       params={"sensor_name": "robot/root_angmom"}),
     "lin_vel_z": RewardTermCfg(func=mdp.lin_vel_z, weight=scales["lin_vel_z"]),
     "ang_vel_xy": RewardTermCfg(func=mdp.ang_vel_xy, weight=scales["ang_vel_xy"]),
+    "base_height": RewardTermCfg(
+      func=mdp.base_height, weight=scales["base_height"],
+      params={"target_height": 0.32}),
+    "feet_air_time": RewardTermCfg(
+      func=mdp.feet_air_time, weight=scales["feet_air_time"],
+      params={"sensor_name": "feet_ground_contact", "threshold": 0.5}),
     "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
     "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
     "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),

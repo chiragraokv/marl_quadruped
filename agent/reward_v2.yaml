@@ -1,0 +1,64 @@
+rewards:
+  # --- Task ---
+  - id: track_lin_vel_xy
+    type: task
+    scale: 1.5
+    equation: "exp(-||v_cmd_xy - v_b_xy||^2 / sigma_lin)"   # sigma_lin ~ 0.25
+
+  - id: track_ang_vel_z
+    type: task
+    scale: 0.75
+    equation: "exp(-(w_cmd_z - w_b_z)^2 / sigma_yaw)"        # sigma_yaw ~ 0.25
+
+  # --- Stability (keeps the base up) ---
+  - id: body_orientation
+    type: stability
+    scale: -1.0
+    equation: "||g_b_xy||^2"
+
+  - id: lin_vel_z
+    type: stability
+    scale: -2.0
+    equation: "v_b_z^2"
+
+  - id: ang_vel_xy
+    type: stability
+    scale: -0.05
+    equation: "||omega_b_xy||^2"
+
+  - id: base_height
+    type: stability
+    scale: -10.0
+    equation: "(h_base - h_target)^2"    # fixed nominal height, no jump command
+
+  # --- Gait ---
+  - id: feet_air_time
+    type: gait
+    scale: 1.0
+    equation: "sum((t_air_i - 0.5) * first_contact_i)"   # reward only on touchdown
+
+  - id: feet_slip
+    type: gait
+    scale: -0.1
+    equation: "sum(contact_i * ||v_foot_i_xy||^2)"
+
+  - id: undesired_contact
+    type: gait
+    scale: -1.0
+    equation: "count(nonfoot_ground_contact)"
+
+  # --- Regularization ---
+  - id: torques
+    type: regularization
+    scale: -1e-5
+    equation: "sum(tau_i^2)"
+
+  - id: dof_acc
+    type: regularization
+    scale: -2.5e-7
+    equation: "sum(qddot_i^2)"
+
+  - id: action_rate
+    type: regularization
+    scale: -0.01
+    equation: "||a_t - a_(t-1)||^2"

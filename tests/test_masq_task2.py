@@ -28,9 +28,11 @@ class TestMasqTask2(unittest.TestCase):
     env_cfg = make_masq_env_cfg()
     expected = {
       "body_orientation_l2": -1.0,
-      "self_collisions": -1.0,
-      "body_ang_vel": -0.05,
-      "angular_momentum": -0.025,
+      "self_collisions": 0.0,
+      "body_ang_vel": 0.0,
+      "angular_momentum": 0.0,
+      "base_height": -10.0,
+      "feet_air_time": 1.0,
     }
     self.assertEqual(
       {name: env_cfg.rewards[name].weight for name in expected}, expected
@@ -57,6 +59,29 @@ class TestMasqTask2(unittest.TestCase):
     env_cfg = make_masq_env_cfg()
     configured = {name: term.weight for name, term in env_cfg.rewards.items()}
     self.assertEqual(configured, masq_rewards.MASQ_REWARD_SCALES)
+
+  def test_reward_v2_scales_and_omitted_rewards(self):
+    expected_active = {
+      "track_linear_velocity": 1.5,
+      "track_angular_velocity": 0.75,
+      "body_orientation_l2": -1.0,
+      "lin_vel_z": -2.0,
+      "ang_vel_xy": -0.05,
+      "base_height": -10.0,
+      "feet_air_time": 1.0,
+      "feet_slip": -0.1,
+      "collision": -1.0,
+      "torques": -1e-5,
+      "dof_acc": -2.5e-7,
+      "action_rate": -0.01,
+    }
+    for name, scale in expected_active.items():
+      self.assertEqual(masq_rewards.MASQ_REWARD_SCALES[name], scale)
+
+    omitted = set(masq_rewards.MASQ_REWARD_SCALES) - set(expected_active)
+    self.assertTrue(omitted)
+    self.assertTrue(all(masq_rewards.MASQ_REWARD_SCALES[name] == 0.0
+                        for name in omitted))
 
 
 if __name__ == "__main__":

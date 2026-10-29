@@ -6,26 +6,30 @@ from mjlab.envs import mdp as mjlab_mdp
 # Complete MASQ Table-I registry. Several entries intentionally reuse
 # implementations already validated by the stock velocity task/mjlab.
 MASQ_REWARD_SCALES = {
-  "track_linear_velocity": 1.0,
-  "track_angular_velocity": 0.5,
+  # reward_v2.yaml names these track_lin_vel_xy and track_ang_vel_z.
+  "track_linear_velocity": 2.5,
+  "track_angular_velocity": 1.75,
   "body_orientation_l2": -1.0,
-  "self_collisions": -1.0,
-  "body_ang_vel": -0.05,
-  "angular_momentum": -0.025,
-  "lin_vel_z": -2e-2,
-  "ang_vel_xy": -1e-3,
+  "self_collisions": 0.0,
+  "body_ang_vel": 0.0,
+  "angular_momentum": 0.0,
+  "lin_vel_z": -2.0,
+  "ang_vel_xy": -0.05,
+  "base_height": -10.0,
+  "feet_air_time": 1.0,
   "torques": -1e-5,
-  "dof_vel": -1e-4,
+  "dof_vel": 0.0,
   "dof_acc": -2.5e-7,
-  "collision": -5.0,
+  # reward_v2.yaml calls this undesired_contact.
+  "collision": -1.0,
   "action_rate": -1e-2,
-  "jump": 10.0,
-  "feet_slip": -4e-2,
-  "action_smooth_1": -0.1,
-  "action_smooth_2": -0.1,
+  "jump": 0.0,
+  "feet_slip": -0.1,
+  "action_smooth_1": 0.0,
+  "action_smooth_2": 0.0,
   "feet_impact_vel": 0.0,
-  "raibert": -10.0,
-  "track_contact_shaped_vel": 4.0,
+  "raibert": 0.0,
+  "track_contact_shaped_vel": 0.0,
 }
 
 # Explicit aliases make every reused reward discoverable from this MASQ file.
@@ -48,6 +52,17 @@ def lin_vel_z(env):
 
 def ang_vel_xy(env):
   return env.scene["robot"].data.root_link_ang_vel_b[:, :2].square().sum(-1)
+
+def base_height(env, target_height=.32):
+  """Squared base-height error around Go2's nominal standing height."""
+  height = env.scene["robot"].data.root_link_pos_w[:, 2]
+  return (height - target_height).square()
+
+def feet_air_time(env, sensor_name="feet_ground_contact", threshold=.5):
+  """Reward completed swing duration at the instant each foot touches down."""
+  sensor = env.scene[sensor_name]
+  first_contact = sensor.compute_first_contact(dt=env.step_dt)
+  return ((sensor.data.last_air_time - threshold) * first_contact).sum(-1)
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)
