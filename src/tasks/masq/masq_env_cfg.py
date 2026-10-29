@@ -86,6 +86,9 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
     "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_rate"]),
+    "episode_time": RewardTermCfg(
+      func=mdp.episode_time_penalty, weight=scales["episode_time"],
+      params={"warmup_iterations": 500, "steps_per_iteration": 24}),
     "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
     "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
     "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),

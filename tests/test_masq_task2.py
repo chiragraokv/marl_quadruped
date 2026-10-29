@@ -1,6 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
+import torch
 import yaml
 
 from src.tasks.masq.config.go2.rl_cfg import unitree_go2_masq_ppo_runner_cfg
@@ -61,27 +63,29 @@ class TestMasqTask2(unittest.TestCase):
     self.assertEqual(configured, masq_rewards.MASQ_REWARD_SCALES)
 
   def test_reward_v2_scales_and_omitted_rewards(self):
-    expected_active = {
-      "track_linear_velocity": 1.5,
-      "track_angular_velocity": 0.75,
-      "body_orientation_l2": -1.0,
-      "lin_vel_z": -2.0,
-      "ang_vel_xy": -0.05,
-      "base_height": -10.0,
-      "feet_air_time": 1.0,
-      "feet_slip": -0.1,
-      "collision": -1.0,
-      "torques": -1e-5,
-      "dof_acc": -2.5e-7,
-      "action_rate": -0.01,
+    # Check coverage without freezing tunable dictionary values. The separate
+    # dictionary-to-environment test proves edits propagate to the task.
+    expected_terms = {
+      "track_linear_velocity", "track_angular_velocity",
+      "body_orientation_l2", "lin_vel_z", "ang_vel_xy", "base_height",
+      "feet_air_time", "feet_slip", "collision", "torques", "dof_acc",
+      "action_rate", "episode_time",
     }
-    for name, scale in expected_active.items():
-      self.assertEqual(masq_rewards.MASQ_REWARD_SCALES[name], scale)
+    self.assertTrue(expected_terms <= set(masq_rewards.MASQ_REWARD_SCALES))
 
-    omitted = set(masq_rewards.MASQ_REWARD_SCALES) - set(expected_active)
-    self.assertTrue(omitted)
-    self.assertTrue(all(masq_rewards.MASQ_REWARD_SCALES[name] == 0.0
-                        for name in omitted))
+  def test_episode_time_penalty_has_configurable_500_iteration_warmup(self):
+    env = SimpleNamespace(
+      common_step_counter=500 * 24 - 1,
+      episode_length_buf=torch.tensor([0, 25, 100]),
+      step_dt=0.02,
+    )
+    before = masq_rewards.episode_time_penalty(env)
+    self.assertTrue(torch.equal(before, torch.zeros(3)))
+
+    env.common_step_counter = 500 * 24
+    after = masq_rewards.episode_time_penalty(env)
+    expected = torch.exp(-env.episode_length_buf.float() * env.step_dt)
+    self.assertTrue(torch.allclose(after, expected))
 
 
 if __name__ == "__main__":

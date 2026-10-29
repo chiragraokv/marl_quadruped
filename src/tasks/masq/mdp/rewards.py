@@ -23,6 +23,7 @@ MASQ_REWARD_SCALES = {
   # reward_v2.yaml calls this undesired_contact.
   "collision": -1.0,
   "action_rate": -1e-2,
+  "episode_time": -1.0,
   "jump": 0.0,
   "feet_slip": -0.1,
   "action_smooth_1": 0.0,
@@ -63,6 +64,20 @@ def feet_air_time(env, sensor_name="feet_ground_contact", threshold=.5):
   sensor = env.scene[sensor_name]
   first_contact = sensor.compute_first_contact(dt=env.step_dt)
   return ((sensor.data.last_air_time - threshold) * first_contact).sum(-1)
+
+def episode_time_penalty(
+  env, warmup_iterations=500, steps_per_iteration=24
+):
+  """Return exp(-episode time), disabled during the initial PPO warm-up.
+
+  ``common_step_counter`` counts policy/environment steps, so multiplying the
+  requested PPO-iteration warm-up by the rollout length converts both values
+  to the same unit.
+  """
+  if env.common_step_counter < warmup_iterations * steps_per_iteration:
+    return torch.zeros_like(env.episode_length_buf, dtype=torch.float)
+  episode_time = env.episode_length_buf.float() * env.step_dt
+  return torch.exp(-episode_time)
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)

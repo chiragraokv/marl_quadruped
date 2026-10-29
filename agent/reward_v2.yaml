@@ -62,3 +62,9 @@ rewards:
     type: regularization
     scale: -0.01
     equation: "||a_t - a_(t-1)||^2"
+
+  - id: episode_time
+    type: regularization
+    scale: -1.0
+    equation: "exp(-episode_time)"
+    notes: "Disabled for the first warmup_iterations PPO iterations; default 500."

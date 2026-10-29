@@ -125,6 +125,11 @@ with weight zero, and two new terms were added: fixed nominal `base_height`
 error and touchdown-based `feet_air_time`. `MASQ_REWARD_SCALES` remains the
 single source of truth for all configured weights.
 
+An `episode_time` penalty was subsequently added with raw value
+`exp(-episode_time)` and scale `-1.0`. It is disabled for a configurable warm-up
+(`warmup_iterations=500` by default), converted to environment steps using the
+24-step MASQ rollout length.
+
 The v2 configuration was then smoke-tested for one CPU iteration with 4
 environments. All 22 retained/new reward terms initialized, the new functions
 executed, PPO completed 96 simulator steps, and the run exited successfully.
