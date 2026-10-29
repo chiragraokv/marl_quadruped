@@ -9,6 +9,7 @@ from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.envs.mdp import dr
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 from src.tasks.velocity.config.go2.env_cfgs import unitree_go2_flat_env_cfg
 from src.tasks.masq import mdp
 from src.tasks.masq.mdp.commands import GaitCommandCfg
@@ -25,6 +26,18 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
                                    ang_vel_z=(-1., 1.), heading=None),
     )
   }
+  # Observe robot-on-robot contacts separately from the existing non-foot
+  # ground sensor.  Using the base subtree covers all Go2 collision geoms.
+  self_collision_cfg = ContactSensorCfg(
+    name="self_collision",
+    primary=ContactMatch(mode="subtree", pattern="base_link", entity="robot"),
+    secondary=ContactMatch(mode="subtree", pattern="base_link", entity="robot"),
+    fields=("found", "force"),
+    reduce="none",
+    num_slots=1,
+    history_length=4,
+  )
+  cfg.scene.sensors = (cfg.scene.sensors or ()) + (self_collision_cfg,)
   # Keep the manager-level four-way split explicit: each term is one 35D leg.
   cfg.observations["actor"].terms = {
     f"leg{i}_obs": ObservationTermCfg(func=mdp.leg_observation,
@@ -42,23 +55,39 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "base_lin_vel": ObservationTermCfg(func=mdp.builtin_sensor, params={"sensor_name": "robot/imu_lin_vel"}),
     "directors": ObservationTermCfg(func=mdp.temporal_director_all, params={"command_name": "gait"}),
   }
+  scales = mdp.MASQ_REWARD_SCALES
   cfg.rewards = {
-    "track_linear_velocity": RewardTermCfg(func=mdp.track_linear_velocity, weight=1., params={"command_name":"gait", "std":.5}),
-    "track_angular_velocity": RewardTermCfg(func=mdp.track_angular_velocity, weight=.5, params={"command_name":"gait", "std":.5}),
-    "lin_vel_z": RewardTermCfg(func=mdp.lin_vel_z, weight=-2e-2),
-    "ang_vel_xy": RewardTermCfg(func=mdp.ang_vel_xy, weight=-1e-3),
-    "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=-1e-5),
-    "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=-1e-4),
-    "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=-2.5e-7),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-1e-2),
-    "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-.1),
-    "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=-.1),
-    "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=0.0),
-    "jump": RewardTermCfg(func=mdp.jump, weight=10., params={"command_name":"gait"}),
-    "feet_slip": RewardTermCfg(func=mdp.feet_slip, weight=-.04, params={"sensor_name":"feet_ground_contact", "command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
-    "collision": RewardTermCfg(func=mdp.collision, weight=-5.),
-    "raibert": RewardTermCfg(func=mdp.raibert, weight=-10., params={"command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
-    "track_contact_shaped_vel": RewardTermCfg(func=mdp.tracking_contacts_shaped_velocity, weight=4., params={"asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
+    "track_linear_velocity": RewardTermCfg(func=mdp.track_linear_velocity, weight=scales["track_linear_velocity"], params={"command_name":"gait", "std":.5}),
+    "track_angular_velocity": RewardTermCfg(func=mdp.track_angular_velocity, weight=scales["track_angular_velocity"], params={"command_name":"gait", "std":.5}),
+    # Stability terms copied from the validated velocity task.  These close
+    # the reward-hacking loophole where velocity can be tracked with a tilted,
+    # violently rotating, or self-colliding body.
+    "body_orientation_l2": RewardTermCfg(
+      func=mdp.body_orientation_l2, weight=scales["body_orientation_l2"],
+      params={"asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
+    "self_collisions": RewardTermCfg(
+      func=mdp.self_collision_cost, weight=scales["self_collisions"],
+      params={"sensor_name": self_collision_cfg.name, "force_threshold": 10.0}),
+    "body_ang_vel": RewardTermCfg(
+      func=mdp.body_angular_velocity_penalty, weight=scales["body_ang_vel"],
+      params={"asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
+    "angular_momentum": RewardTermCfg(
+      func=mdp.angular_momentum_penalty, weight=scales["angular_momentum"],
+      params={"sensor_name": "robot/root_angmom"}),
+    "lin_vel_z": RewardTermCfg(func=mdp.lin_vel_z, weight=scales["lin_vel_z"]),
+    "ang_vel_xy": RewardTermCfg(func=mdp.ang_vel_xy, weight=scales["ang_vel_xy"]),
+    "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
+    "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
+    "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_rate"]),
+    "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
+    "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
+    "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),
+    "jump": RewardTermCfg(func=mdp.jump, weight=scales["jump"], params={"command_name":"gait"}),
+    "feet_slip": RewardTermCfg(func=mdp.feet_slip, weight=scales["feet_slip"], params={"sensor_name":"feet_ground_contact", "command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
+    "collision": RewardTermCfg(func=mdp.collision, weight=scales["collision"]),
+    "raibert": RewardTermCfg(func=mdp.raibert, weight=scales["raibert"], params={"command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
+    "track_contact_shaped_vel": RewardTermCfg(func=mdp.tracking_contacts_shaped_velocity, weight=scales["track_contact_shaped_vel"], params={"asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
   }
   cfg.curriculum = {
     "multi_gait": CurriculumTermCfg(

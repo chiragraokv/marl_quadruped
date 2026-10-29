@@ -105,7 +105,22 @@ class MASQActorModel(RNNModel):
 
     flattened_old = flatten_params(old_params)
     flattened_new = flatten_params(new_params)
-    return self.distribution.kl_divergence(flattened_old, flattened_new)
+
+    # The recurrent MASQ update can evaluate the current policy on one
+    # simulator-step batch while the rollout stores all T steps.  Match the
+    # current distribution to the stored rollout batch before asking PyTorch
+    # for KL; otherwise Normal distributions fail on [T*B*4, D] vs [B*4, D].
+    aligned_new = []
+    for old, new in zip(flattened_old, flattened_new):
+      if old.shape[0] != new.shape[0]:
+        if old.shape[0] % new.shape[0] != 0:
+          raise ValueError(
+            f"MASQ KL batch mismatch: old={old.shape}, new={new.shape}"
+          )
+        new = new.repeat(old.shape[0] // new.shape[0], 1)
+      aligned_new.append(new)
+
+    return self.distribution.kl_divergence(flattened_old, tuple(aligned_new))
 
   def as_onnx(self, verbose: bool):
     return _MASQOnnxActor(self, verbose)

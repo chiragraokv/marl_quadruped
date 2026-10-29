@@ -1,0 +1,135 @@
+# MASQ reward revision 1: gait-quality tuning after visual evaluation.
+# Total reward is the weighted sum of every term below. Negative scales are
+# penalties. The four `stability` terms are additions relative to reward.yaml.
+rewards:
+  - id: track_lin_vel
+    name: Tracking Linear Velocity
+    type: task
+    scale: 1.0
+    equation: "exp(-||v_cmd - v_b||^2 / sigma_t)"
+    range: "(0, 1]"
+    notes: Exponential kernel; maximal when v_b equals v_cmd.
+
+  - id: track_ang_vel
+    name: Tracking Angular Velocity
+    type: task
+    scale: 0.5
+    equation: "exp(-(w_cmd_z - w_b_z)^2 / sigma_yaw)"
+
+  - id: body_orientation_l2
+    name: Body Orientation
+    type: stability
+    scale: -1.0
+    equation: "||projected_gravity_body_xy||^2"
+    notes: Penalizes roll and pitch so the base remains horizontal.
+
+  - id: self_collisions
+    name: Self Collisions
+    type: stability
+    scale: -1.0
+    equation: "count(||self_contact_force|| > 10.0)"
+    notes: Counts collision-history samples involving two robot geoms.
+
+  - id: body_ang_vel
+    name: Body Angular Velocity
+    type: stability
+    scale: -0.05
+    equation: "||omega_base_xy||^2"
+    notes: Penalizes excessive roll and pitch rates without suppressing commanded yaw.
+
+  - id: angular_momentum
+    name: Angular Momentum
+    type: stability
+    scale: -0.025
+    equation: "||L_body||^2"
+    notes: Suppresses violent whole-body rotational motion.
+
+  - id: lin_vel_z
+    name: Linear Velocity Z
+    type: penalty
+    scale: -0.02
+    equation: "v_b_z^2"
+
+  - id: ang_vel_xy
+    name: Angular Velocity XY
+    type: penalty
+    scale: -0.001
+    equation: "||omega_base_xy||^2"
+
+  - id: torques
+    name: Joint Torques
+    type: penalty
+    scale: -0.00001
+    equation: "sum(tau_i^2)"
+
+  - id: dof_vel
+    name: DOF Velocity
+    type: penalty
+    scale: -0.0001
+    equation: "sum(qdot_i^2)"
+
+  - id: dof_acc
+    name: DOF Acceleration
+    type: penalty
+    scale: -0.00000025
+    equation: "sum(qddot_i^2)"
+
+  - id: action_rate
+    name: Action Rate
+    type: penalty
+    scale: -0.01
+    equation: "||a_t - a_(t-1)||^2"
+
+  - id: action_smooth_1
+    name: Action Smoothness First Difference
+    type: penalty
+    scale: -0.1
+    equation: "||a_t - a_(t-1)||^2"
+
+  - id: action_smooth_2
+    name: Action Smoothness Second Difference
+    type: penalty
+    scale: -0.1
+    equation: "||a_t - 2*a_(t-1) + a_(t-2)||^2"
+
+  - id: feet_impact_vel
+    name: Feet Impact Velocity
+    type: penalty
+    scale: 0.0
+    equation: "sum(contact_i * ||v_foot_i||^2)"
+    notes: Retained for measurement but disabled by its zero scale.
+
+  - id: jump
+    name: Jump Height
+    type: task
+    scale: 10.0
+    equation: "-(height_base - height_command)^2"
+
+  - id: feet_slip
+    name: Feet Slip
+    type: penalty
+    scale: -0.04
+    equation: "sum(contact_i * ||v_foot_i_xy||^2)"
+
+  - id: collision
+    name: Non-foot Ground Collision
+    type: penalty
+    scale: -5.0
+    equation: "count(||nonfoot_ground_force|| > 0.1)"
+
+  - id: raibert
+    name: Raibert Foot Placement
+    type: penalty
+    scale: -10.0
+    equation: "sum(||foot_xy - desired_foot_xy||^2)"
+
+  - id: track_contact_shaped_vel
+    name: Contact-shaped Foot Velocity
+    type: task
+    scale: 4.0
+    equation: "sum(contact_i * (1 - exp(-||v_foot_i||^2 / sigma)))"
+
+logging:
+  separate_terms: Episode_Reward/<reward_id>
+  combined_reward: Train/mean_reward
+  backend: wandb

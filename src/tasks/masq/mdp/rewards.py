@@ -8,6 +8,10 @@ from mjlab.envs import mdp as mjlab_mdp
 MASQ_REWARD_SCALES = {
   "track_linear_velocity": 1.0,
   "track_angular_velocity": 0.5,
+  "body_orientation_l2": -1.0,
+  "self_collisions": -1.0,
+  "body_ang_vel": -0.05,
+  "angular_momentum": -0.025,
   "lin_vel_z": -2e-2,
   "ang_vel_xy": -1e-3,
   "torques": -1e-5,
@@ -27,6 +31,10 @@ MASQ_REWARD_SCALES = {
 # Explicit aliases make every reused reward discoverable from this MASQ file.
 track_linear_velocity = velocity_rewards.track_linear_velocity
 track_angular_velocity = velocity_rewards.track_angular_velocity
+body_orientation_l2 = velocity_rewards.body_orientation_l2
+self_collision_cost = velocity_rewards.self_collision_cost
+body_angular_velocity_penalty = velocity_rewards.body_angular_velocity_penalty
+angular_momentum_penalty = velocity_rewards.angular_momentum_penalty
 torques = mjlab_mdp.joint_torques_l2
 dof_vel = mjlab_mdp.joint_vel_l2
 dof_acc = mjlab_mdp.joint_acc_l2
