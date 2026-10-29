@@ -125,10 +125,9 @@ with weight zero, and two new terms were added: fixed nominal `base_height`
 error and touchdown-based `feet_air_time`. `MASQ_REWARD_SCALES` remains the
 single source of truth for all configured weights.
 
-An `episode_time` penalty was subsequently added with raw value
-`exp(-episode_time)` and scale `-1.0`. It is disabled for a configurable warm-up
-(`warmup_iterations=500` by default), converted to environment steps using the
-24-step MASQ rollout length.
+The temporary `episode_time` penalty was replaced by a positive, saturating
+survival reward. See the survival-task report for its ramp, resume behavior,
+metrics, and experimental results.
 
 The v2 configuration was then smoke-tested for one CPU iteration with 4
 environments. All 22 retained/new reward terms initialized, the new functions

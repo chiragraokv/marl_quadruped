@@ -15,7 +15,9 @@ from src.tasks.masq import mdp
 from src.tasks.masq.mdp.commands import GaitCommandCfg
 from src.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
 
-def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+def make_masq_env_cfg(
+  play: bool = False, steps_per_iter: int = 24
+) -> ManagerBasedRlEnvCfg:
   # Start from the validated Go2 flat task so robot entities, foot sensors,
   # site names, and the raycast-frame overrides are all initialized correctly.
   cfg = unitree_go2_flat_env_cfg(play=play)
@@ -86,9 +88,10 @@ def make_masq_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
     "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_rate"]),
-    "episode_time": RewardTermCfg(
-      func=mdp.episode_time_penalty, weight=scales["episode_time"],
-      params={"warmup_iterations": 500, "steps_per_iteration": 24}),
+    "survival": RewardTermCfg(
+      func=mdp.survival_reward, weight=scales["survival"],
+      params={"tau_s": 1.0, "start_iter": 0, "ramp_iters": 200,
+              "steps_per_iter": steps_per_iter}),
     "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
     "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
     "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),

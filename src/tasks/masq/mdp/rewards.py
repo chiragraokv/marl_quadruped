@@ -23,7 +23,7 @@ MASQ_REWARD_SCALES = {
   # reward_v2.yaml calls this undesired_contact.
   "collision": -1.0,
   "action_rate": -1e-2,
-  "episode_time": -1.0,
+  "survival": 0.5,
   "jump": 0.0,
   "feet_slip": -0.1,
   "action_smooth_1": 0.0,
@@ -65,19 +65,31 @@ def feet_air_time(env, sensor_name="feet_ground_contact", threshold=.5):
   first_contact = sensor.compute_first_contact(dt=env.step_dt)
   return ((sensor.data.last_air_time - threshold) * first_contact).sum(-1)
 
-def episode_time_penalty(
-  env, warmup_iterations=500, steps_per_iteration=24
-):
-  """Return exp(-episode time), disabled during the initial PPO warm-up.
-
-  ``common_step_counter`` counts policy/environment steps, so multiplying the
-  requested PPO-iteration warm-up by the rollout length converts both values
-  to the same unit.
-  """
-  if env.common_step_counter < warmup_iterations * steps_per_iteration:
-    return torch.zeros_like(env.episode_length_buf, dtype=torch.float)
+def survival_bonus(env, tau_s: float = 1.0):
+  """Saturating bonus for staying up. Rises over tau_s, then flattens."""
   episode_time = env.episode_length_buf.float() * env.step_dt
-  return torch.exp(-episode_time)
+  return 1.0 - torch.exp(-episode_time / tau_s)
+
+def warmup_ramp(
+  env, start_iter: int = 0, ramp_iters: int = 200, steps_per_iter: int = 24
+):
+  """Linear 0 -> 1 ramp over PPO iterations, starting at start_iter."""
+  start = start_iter * steps_per_iter
+  ramp = ramp_iters * steps_per_iter
+  if ramp <= 0:
+    frac = 1.0 if env.common_step_counter >= start else 0.0
+  else:
+    frac = min(max((env.common_step_counter - start) / ramp, 0.0), 1.0)
+  return torch.full_like(env.episode_length_buf, frac, dtype=torch.float)
+
+def survival_reward(
+  env, tau_s: float = 1.0, start_iter: int = 0, ramp_iters: int = 200,
+  steps_per_iter: int = 24,
+):
+  """Survival bonus multiplied by its smooth PPO-iteration warm-up ramp."""
+  ramp = warmup_ramp(env, start_iter, ramp_iters, steps_per_iter)
+  env.extras.setdefault("log", {})["Metrics/survival_ramp"] = ramp.mean()
+  return survival_bonus(env, tau_s) * ramp
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)

@@ -69,23 +69,30 @@ class TestMasqTask2(unittest.TestCase):
       "track_linear_velocity", "track_angular_velocity",
       "body_orientation_l2", "lin_vel_z", "ang_vel_xy", "base_height",
       "feet_air_time", "feet_slip", "collision", "torques", "dof_acc",
-      "action_rate", "episode_time",
+      "action_rate", "survival",
     }
     self.assertTrue(expected_terms <= set(masq_rewards.MASQ_REWARD_SCALES))
 
-  def test_episode_time_penalty_has_configurable_500_iteration_warmup(self):
+  def test_survival_bonus_and_warmup_ramp(self):
     env = SimpleNamespace(
-      common_step_counter=500 * 24 - 1,
+      common_step_counter=0,
       episode_length_buf=torch.tensor([0, 25, 100]),
       step_dt=0.02,
+      extras={"log": {}},
     )
-    before = masq_rewards.episode_time_penalty(env)
-    self.assertTrue(torch.equal(before, torch.zeros(3)))
+    raw = masq_rewards.survival_bonus(env)
+    expected = 1.0 - torch.exp(-env.episode_length_buf.float() * env.step_dt)
+    self.assertTrue(torch.allclose(raw, expected))
+    self.assertTrue(torch.equal(masq_rewards.survival_reward(env), torch.zeros(3)))
 
-    env.common_step_counter = 500 * 24
-    after = masq_rewards.episode_time_penalty(env)
-    expected = torch.exp(-env.episode_length_buf.float() * env.step_dt)
-    self.assertTrue(torch.allclose(after, expected))
+    env.common_step_counter = 100 * 24
+    half = masq_rewards.survival_reward(env)
+    self.assertTrue(torch.allclose(half, expected * 0.5))
+    self.assertAlmostEqual(env.extras["log"]["Metrics/survival_ramp"].item(), 0.5)
+
+    env.common_step_counter = 200 * 24
+    full = masq_rewards.survival_reward(env)
+    self.assertTrue(torch.allclose(full, expected))
 
 
 if __name__ == "__main__":

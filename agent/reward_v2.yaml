@@ -63,8 +63,9 @@ rewards:
     scale: -0.01
     equation: "||a_t - a_(t-1)||^2"
 
-  - id: episode_time
-    type: regularization
-    scale: -1.0
-    equation: "exp(-episode_time)"
-    notes: "Disabled for the first warmup_iterations PPO iterations; default 500."
+  - id: survival
+    name: Survival Bonus
+    type: task
+    scale: 0.5
+    equation: "1 - exp(-t / tau_s)"
+    notes: "tau_s=1.0 s; multiplied by a 0-to-1 ramp over the first 200 PPO iterations."
