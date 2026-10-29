@@ -59,8 +59,8 @@ def make_masq_env_cfg(
   }
   scales = mdp.MASQ_REWARD_SCALES
   cfg.rewards = {
-    "track_linear_velocity": RewardTermCfg(func=mdp.track_linear_velocity, weight=scales["track_linear_velocity"], params={"command_name":"gait", "std":.5}),
-    "track_angular_velocity": RewardTermCfg(func=mdp.track_angular_velocity, weight=scales["track_angular_velocity"], params={"command_name":"gait", "std":.5}),
+    "track_linear_velocity": RewardTermCfg(func=mdp.track_lin_vel_xy, weight=scales["track_linear_velocity"], params={"command_name":"gait", "std":.5}),
+    "track_angular_velocity": RewardTermCfg(func=mdp.track_ang_vel_z, weight=scales["track_angular_velocity"], params={"command_name":"gait", "std":.5}),
     # Stability terms copied from the validated velocity task.  These close
     # the reward-hacking loophole where velocity can be tracked with a tilted,
     # violently rotating, or self-colliding body.
@@ -84,6 +84,13 @@ def make_masq_env_cfg(
     "feet_air_time": RewardTermCfg(
       func=mdp.feet_air_time, weight=scales["feet_air_time"],
       params={"sensor_name": "feet_ground_contact", "threshold": 0.5}),
+    "feet_stance_time": RewardTermCfg(
+      func=mdp.feet_stance_time, weight=scales["feet_stance_time"],
+      params={"sensor_name": "feet_ground_contact", "stance_limit": 1.25}),
+    "stand_still_penalty": RewardTermCfg(
+      func=mdp.stand_still_penalty, weight=scales["stand_still_penalty"],
+      params={"command_name": "gait", "command_threshold": 0.1,
+              "sigma_still": 0.1}),
     "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
     "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
     "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
@@ -91,7 +98,8 @@ def make_masq_env_cfg(
     "survival": RewardTermCfg(
       func=mdp.survival_reward, weight=scales["survival"],
       params={"tau_s": 1.0, "start_iter": 0, "ramp_iters": 200,
-              "steps_per_iter": steps_per_iter}),
+              "steps_per_iter": steps_per_iter, "command_name": "gait",
+              "tracking_std": 0.5}),
     "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
     "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
     "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),

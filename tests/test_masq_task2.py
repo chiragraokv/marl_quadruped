@@ -68,8 +68,9 @@ class TestMasqTask2(unittest.TestCase):
     expected_terms = {
       "track_linear_velocity", "track_angular_velocity",
       "body_orientation_l2", "lin_vel_z", "ang_vel_xy", "base_height",
-      "feet_air_time", "feet_slip", "collision", "torques", "dof_acc",
-      "action_rate", "survival",
+      "feet_air_time", "feet_stance_time", "stand_still_penalty",
+      "feet_slip", "collision", "torques", "dof_acc", "action_rate",
+      "survival",
     }
     self.assertTrue(expected_terms <= set(masq_rewards.MASQ_REWARD_SCALES))
 
@@ -79,6 +80,14 @@ class TestMasqTask2(unittest.TestCase):
       episode_length_buf=torch.tensor([0, 25, 100]),
       step_dt=0.02,
       extras={"log": {}},
+      command_manager=SimpleNamespace(
+        get_command=lambda _: torch.zeros(3, 3)
+      ),
+      scene={
+        "robot": SimpleNamespace(data=SimpleNamespace(
+          root_link_lin_vel_b=torch.zeros(3, 3)
+        ))
+      },
     )
     raw = masq_rewards.survival_bonus(env)
     expected = 1.0 - torch.exp(-env.episode_length_buf.float() * env.step_dt)
@@ -93,6 +102,48 @@ class TestMasqTask2(unittest.TestCase):
     env.common_step_counter = 200 * 24
     full = masq_rewards.survival_reward(env)
     self.assertTrue(torch.allclose(full, expected))
+
+    env.command_manager = SimpleNamespace(
+      get_command=lambda _: torch.ones(3, 3)
+    )
+    gated = masq_rewards.survival_bonus(env)
+    expected_gate = torch.exp(torch.tensor(-8.0))  # XY error 2 / std^2 .25.
+    self.assertTrue(torch.allclose(gated, expected * expected_gate))
+
+  def test_reward_v3_new_terms_and_scales(self):
+    data = yaml.safe_load(
+      (Path(__file__).parents[1] / "agent" / "reward_v3.yaml").read_text()
+    )
+    yaml_scales = {term["id"]: term["scale"] for term in data["rewards"]}
+    aliases = {
+      "track_lin_vel_xy": "track_linear_velocity",
+      "track_ang_vel_z": "track_angular_velocity",
+      "body_orientation": "body_orientation_l2",
+      "undesired_contact": "collision",
+    }
+    for yaml_name, scale in yaml_scales.items():
+      config_name = aliases.get(yaml_name, yaml_name)
+      self.assertEqual(masq_rewards.MASQ_REWARD_SCALES[config_name], scale)
+
+    sensor = SimpleNamespace(data=SimpleNamespace(
+      current_contact_time=torch.tensor([[0.5, 1.25, 1.5, 2.0]])
+    ))
+    robot = SimpleNamespace(data=SimpleNamespace(
+      joint_vel=torch.zeros(2, 12),
+      root_link_lin_vel_b=torch.zeros(2, 3),
+      root_link_ang_vel_b=torch.zeros(2, 3),
+    ))
+    commands = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    env = SimpleNamespace(
+      scene={"feet_ground_contact": sensor, "robot": robot},
+      command_manager=SimpleNamespace(get_command=lambda _: commands),
+    )
+    self.assertTrue(torch.allclose(
+      masq_rewards.feet_stance_time(env), torch.tensor([1.0])
+    ))
+    self.assertTrue(torch.allclose(
+      masq_rewards.stand_still_penalty(env), torch.tensor([1.0, 0.0])
+    ))
 
 
 if __name__ == "__main__":

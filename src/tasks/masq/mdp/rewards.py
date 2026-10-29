@@ -6,9 +6,9 @@ from mjlab.envs import mdp as mjlab_mdp
 # Complete MASQ Table-I registry. Several entries intentionally reuse
 # implementations already validated by the stock velocity task/mjlab.
 MASQ_REWARD_SCALES = {
-  # reward_v2.yaml names these track_lin_vel_xy and track_ang_vel_z.
-  "track_linear_velocity": 2.5,
-  "track_angular_velocity": 1.75,
+  # reward_v3.yaml names these track_lin_vel_xy and track_ang_vel_z.
+  "track_linear_velocity": 1.5,
+  "track_angular_velocity": 0.75,
   "body_orientation_l2": -1.0,
   "self_collisions": 0.0,
   "body_ang_vel": 0.0,
@@ -17,6 +17,8 @@ MASQ_REWARD_SCALES = {
   "ang_vel_xy": -0.05,
   "base_height": -10.0,
   "feet_air_time": 1.0,
+  "feet_stance_time": -0.05,
+  "stand_still_penalty": -1.0,
   "torques": -1e-5,
   "dof_vel": 0.0,
   "dof_acc": -2.5e-7,
@@ -48,6 +50,19 @@ action_smooth_1 = mjlab_mdp.action_rate_l2
 action_smooth_2 = mjlab_mdp.action_acc_l2
 feet_slip = velocity_rewards.feet_slip
 
+def track_lin_vel_xy(env, command_name="gait", std=.5):
+  """Exact v3 XY-only command tracking kernel."""
+  command = env.command_manager.get_command(command_name)
+  actual = env.scene["robot"].data.root_link_lin_vel_b
+  error = (command[:, :2] - actual[:, :2]).square().sum(-1)
+  return torch.exp(-error / std**2)
+
+def track_ang_vel_z(env, command_name="gait", std=.5):
+  """Exact v3 yaw-only command tracking kernel."""
+  command = env.command_manager.get_command(command_name)
+  actual = env.scene["robot"].data.root_link_ang_vel_b[:, 2]
+  return torch.exp(-(command[:, 2] - actual).square() / std**2)
+
 def lin_vel_z(env):
   return env.scene["robot"].data.root_link_lin_vel_b[:, 2].square()
 
@@ -65,10 +80,32 @@ def feet_air_time(env, sensor_name="feet_ground_contact", threshold=.5):
   first_contact = sensor.compute_first_contact(dt=env.step_dt)
   return ((sensor.data.last_air_time - threshold) * first_contact).sum(-1)
 
-def survival_bonus(env, tau_s: float = 1.0):
-  """Saturating bonus for staying up. Rises over tau_s, then flattens."""
+def feet_stance_time(
+  env, sensor_name="feet_ground_contact", stance_limit=1.25
+):
+  """Penalize only the portion of active foot stance exceeding the limit."""
+  contact_time = env.scene[sensor_name].data.current_contact_time
+  return torch.clamp(contact_time - stance_limit, min=0.0).sum(-1)
+
+def stand_still_penalty(
+  env, command_name="gait", command_threshold=.1, sigma_still=.1
+):
+  """Penalize near-zero joint motion under a nonzero planar command."""
+  command = env.command_manager.get_command(command_name)
+  command_active = torch.linalg.vector_norm(command[:, :2], dim=-1) > command_threshold
+  joint_speed_sq = env.scene["robot"].data.joint_vel.square().sum(-1)
+  frozen = torch.exp(-joint_speed_sq / sigma_still)
+  return frozen * command_active.float()
+
+def survival_bonus(
+  env, tau_s: float = 1.0, command_name: str = "gait",
+  tracking_std: float = .5,
+):
+  """Saturating survival bonus gated by planar command-tracking quality."""
   episode_time = env.episode_length_buf.float() * env.step_dt
-  return 1.0 - torch.exp(-episode_time / tau_s)
+  alive = 1.0 - torch.exp(-episode_time / tau_s)
+  tracking_quality = track_lin_vel_xy(env, command_name, tracking_std)
+  return alive * tracking_quality
 
 def warmup_ramp(
   env, start_iter: int = 0, ramp_iters: int = 200, steps_per_iter: int = 24
@@ -84,12 +121,12 @@ def warmup_ramp(
 
 def survival_reward(
   env, tau_s: float = 1.0, start_iter: int = 0, ramp_iters: int = 200,
-  steps_per_iter: int = 24,
+  steps_per_iter: int = 24, command_name: str = "gait", tracking_std: float = .5,
 ):
-  """Survival bonus multiplied by its smooth PPO-iteration warm-up ramp."""
+  """Ramped survival bonus gated by planar command-tracking quality."""
   ramp = warmup_ramp(env, start_iter, ramp_iters, steps_per_iter)
   env.extras.setdefault("log", {})["Metrics/survival_ramp"] = ramp.mean()
-  return survival_bonus(env, tau_s) * ramp
+  return survival_bonus(env, tau_s, command_name, tracking_std) * ramp
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)
