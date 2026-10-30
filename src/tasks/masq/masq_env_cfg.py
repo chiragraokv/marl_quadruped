@@ -26,6 +26,9 @@ def make_masq_env_cfg(
       entity_name="robot", resampling_time_range=(3., 8.),
       ranges=UniformVelocityCommandCfg.Ranges(lin_vel_x=(-1., 2.), lin_vel_y=(-1., 1.),
                                    ang_vel_z=(-1., 1.), heading=None),
+      # V5 starts with the controlled trot-only comparison.  Other gait ids
+      # remain available through GaitCommandCfg.gait_ids for later ablations.
+      gait_ids=(1,),
     )
   }
   # Observe robot-on-robot contacts separately from the existing non-foot
@@ -82,22 +85,29 @@ def make_masq_env_cfg(
     "base_height": RewardTermCfg(
       func=mdp.base_height, weight=scales["base_height"],
       params={"target_height": 0.30, "tolerance": 0.03}),
-    "feet_air_time": RewardTermCfg(
-      func=mdp.feet_air_time, weight=scales["feet_air_time"],
-      params={"sensor_name": "feet_ground_contact", "threshold": 0.5}),
-    "feet_stance_time": RewardTermCfg(
-      func=mdp.feet_stance_time, weight=scales["feet_stance_time"],
-      params={"sensor_name": "feet_ground_contact", "stance_limit": 1.25}),
     "alive_moving": RewardTermCfg(
       func=mdp.alive_moving, weight=scales["alive_moving"],
-      params={"command_name": "gait", "eps_cmd": 0.1, "v_min": 0.1}),
+      params={"command_name": "gait", "sensor_name": "feet_ground_contact", "eps_cmd": 0.1, "v_min": 0.1}),
+    "gait_contact_match": RewardTermCfg(
+      func=mdp.gait_contact_match, weight=scales["gait_contact_match"],
+      params={"command_name": "gait", "sensor_name": "feet_ground_contact", "duty_factor": .58}),
+    "support_deficit": RewardTermCfg(
+      func=mdp.support_deficit, weight=scales["support_deficit"],
+      params={"command_name": "gait", "sensor_name": "feet_ground_contact"}),
+    "all_air_nonpronk": RewardTermCfg(
+      func=mdp.all_air_nonpronk, weight=scales["all_air_nonpronk"],
+      params={"command_name": "gait", "sensor_name": "feet_ground_contact"}),
+    "fall_termination": RewardTermCfg(
+      func=mdp.fall_termination, weight=scales["fall_termination"],
+      params={"steps_per_iteration": steps_per_iter, "zero_until_iteration": 200,
+              "ramp_until_iteration": 800}),
     # Disabled for reward_v4 experiment; keep available for later ablations.
     # "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
     # "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
-    # "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
+    "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_rate"]),
     # "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
-    # "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
+    "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
     # "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),
     # "jump": RewardTermCfg(func=mdp.jump, weight=scales["jump"], params={"command_name":"gait"}),
     "feet_slip": RewardTermCfg(func=mdp.feet_slip, weight=scales["feet_slip"], params={"sensor_name":"feet_ground_contact", "command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),

@@ -1,4 +1,8 @@
-"""Plot MASQ survival diagnostics from an RSL-RL TensorBoard run."""
+"""Plot current MASQ reward terms and episode length from a TensorBoard run.
+
+The filename is retained for callers of the former V4 utility.  It no longer
+looks for V4-only survival/ramp scalars.
+"""
 
 import argparse
 from pathlib import Path
@@ -19,43 +23,34 @@ def main():
   parser.add_argument("--iterations", type=int, default=500)
   args = parser.parse_args()
 
-  accumulator = EventAccumulator(str(args.run_dir))
+  accumulator = EventAccumulator(str(args.run_dir), size_guidance={"scalars": 0})
   accumulator.Reload()
-
-  mean_x, mean_length = series(
-    accumulator, "Train/mean_episode_length", args.iterations
+  available = set(accumulator.Tags().get("scalars", ()))
+  reward_tags = sorted(
+    tag for tag in available if tag.startswith("Episode_Reward/")
   )
-  max_x, max_length = series(
-    accumulator, "Train/max_episode_length", args.iterations
-  )
-  survival_x, survival = series(
-    accumulator, "Episode_Reward/survival", args.iterations
-  )
-  ramp_x, ramp = series(accumulator, "Metrics/survival_ramp", args.iterations)
+  length_tags = [
+    tag for tag in ("Train/mean_episode_length", "Train/max_episode_length")
+    if tag in available
+  ]
+  if not reward_tags and not length_tags:
+    raise ValueError("No current reward or episode-length scalars found")
 
-  figure, left = plt.subplots(figsize=(10, 5.5))
-  left.plot(mean_x, mean_length, label="Mean episode length", color="#1769aa")
-  left.plot(max_x, max_length, label="Max episode length", color="#70a1d7", alpha=.7)
-  left.set_xlabel("PPO iteration")
-  left.set_ylabel("Episode length (environment steps)", color="#1769aa")
-  left.tick_params(axis="y", labelcolor="#1769aa")
-  left.grid(alpha=.2)
-
-  right = left.twinx()
-  right.plot(
-    survival_x, [value * 1000 for value in survival],
-    label="Episode survival reward ×1000", color="#d1495b"
+  tags = length_tags + reward_tags
+  figure, axes = plt.subplots(
+    len(tags), 1, figsize=(11, 2.8 * len(tags)), squeeze=False
   )
-  right.plot(ramp_x, ramp, label="Survival ramp", color="#f28e2b", linestyle="--")
-  right.set_ylabel("Survival reward ×1000 / ramp", color="#d1495b")
-  right.tick_params(axis="y", labelcolor="#d1495b")
-
-  lines = left.lines + right.lines
-  left.legend(lines, [line.get_label() for line in lines], loc="upper right")
-  left.set_title("MASQ survival experiment: first 500 iterations")
+  for axis, tag in zip(axes[:, 0], tags, strict=True):
+    x_values, y_values = series(accumulator, tag, args.iterations)
+    axis.plot(x_values, y_values)
+    axis.set_ylabel(tag.split("/", 1)[-1])
+    axis.grid(alpha=.2)
+  axes[-1, 0].set_xlabel("PPO iteration")
+  figure.suptitle("MASQ current rewards and episode length")
   figure.tight_layout()
   args.output.parent.mkdir(parents=True, exist_ok=True)
   figure.savefig(args.output, dpi=180)
+  plt.close(figure)
 
 
 if __name__ == "__main__":

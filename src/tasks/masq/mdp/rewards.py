@@ -3,35 +3,26 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from src.tasks.velocity.mdp import rewards as velocity_rewards
 from mjlab.envs import mdp as mjlab_mdp
 
-# Complete MASQ Table-I registry. Several entries intentionally reuse
-# implementations already validated by the stock velocity task/mjlab.
+# Exact V5 runtime reward manifest.  Every entry is registered by
+# ``make_masq_env_cfg``; historical/disabled reward experiments belong in the
+# versioned YAML documents, not this executable scale table.
 MASQ_REWARD_SCALES = {
-  # reward_v4.yaml names these track_lin_vel_xy and track_ang_vel_z.
   "track_linear_velocity": 1.5,
   "track_angular_velocity": 0.75,
   "body_orientation_l2": -1.0,
-  "self_collisions": 0.0,
-  "body_ang_vel": 0.0,
-  "angular_momentum": 0.0,
   "lin_vel_z": -2.0,
   "ang_vel_xy": -0.05,
   "base_height": -10.0,
-  "feet_air_time": 1.0,
-  "feet_stance_time": -0.05,
-  "alive_moving": 0.5,
-  "torques": -1e-5,
-  "dof_vel": 0.0,
+  "alive_moving": 0.2,
   "dof_acc": -2.5e-7,
-  # reward_v2.yaml calls this undesired_contact.
   "collision": -1.0,
   "action_rate": -1e-2,
-  "jump": 0.0,
   "feet_slip": -0.1,
-  "action_smooth_1": 0.0,
-  "action_smooth_2": 0.0,
-  "feet_impact_vel": 0.0,
-  "raibert": 0.0,
-  "track_contact_shaped_vel": 0.0,
+  "action_smooth_2": -5e-3,
+  "gait_contact_match": 1.0,
+  "support_deficit": -0.5,
+  "all_air_nonpronk": -3.0,
+  "fall_termination": -50.0,
 }
 
 # Explicit aliases make every reused reward discoverable from this MASQ file.
@@ -61,6 +52,7 @@ def track_lin_vel_xy(
   command = env.command_manager.get_command(command_name)
   actual = env.scene["robot"].data.root_link_lin_vel_b
   error = torch.linalg.vector_norm(command[:, :2] - actual[:, :2], dim=-1)
+  _log_mean(env, "Metrics/linear_velocity_error", error)
   return torch.exp(-error.square() / sigma) - threshold_scale * torch.clamp(
     error - threshold, min=0.0
   )
@@ -72,6 +64,7 @@ def track_ang_vel_z(
   command = env.command_manager.get_command(command_name)
   actual = env.scene["robot"].data.root_link_ang_vel_b[:, 2]
   error = torch.abs(command[:, 2] - actual)
+  _log_mean(env, "Metrics/angular_velocity_error", error)
   return torch.exp(-error.square() / sigma) - threshold_scale * torch.clamp(
     error - threshold, min=0.0
   )
@@ -103,16 +96,112 @@ def feet_stance_time(
   contact_time = env.scene[sensor_name].data.current_contact_time
   return torch.clamp(contact_time - stance_limit, min=0.0).sum(-1)
 
-def alive_moving(env, command_name="gait", eps_cmd=.1, v_min=.1):
-  """Reward survival while executing an active planar velocity command."""
+def _foot_contacts(env, sensor_name):
+  """Return binary foot contacts in the configured FR, FL, RR, RL order."""
+  found = env.scene[sensor_name].data.found
+  assert found is not None
+  return found > 0
+
+
+def _active_command(env, command_name, planar_threshold=.1, yaw_threshold=.2):
+  command = env.command_manager.get_command(command_name)
+  return ((torch.linalg.vector_norm(command[:, :2], dim=-1) > planar_threshold)
+          | (torch.abs(command[:, 2]) > yaw_threshold))
+
+
+def _log_mean(env, name, value):
+  """Log scalar diagnostics without changing the reward returned to the manager."""
+  env.extras.setdefault("log", {})[name] = value.float().mean()
+
+
+def alive_moving(
+  env, command_name="gait", sensor_name="feet_ground_contact", eps_cmd=.1, v_min=.1
+):
+  """Speed shaping only when a planar command and ground support both exist."""
   command = env.command_manager.get_command(command_name)
   command_speed = torch.linalg.vector_norm(command[:, :2], dim=-1)
   body_speed = torch.linalg.vector_norm(
     env.scene["robot"].data.root_link_lin_vel_b[:, :2], dim=-1
   )
-  return (2.0 * torch.tanh(body_speed / v_min) - 1.0) * (
-    command_speed > eps_cmd
-  ).float()
+  supported = _foot_contacts(env, sensor_name).any(dim=-1)
+  return (
+    (2.0 * torch.tanh(body_speed / v_min) - 1.0)
+    * (command_speed > eps_cmd).float()
+    * supported.float()
+  )
+
+
+def gait_contact_match(
+  env, command_name="gait", sensor_name="feet_ground_contact", duty_factor=.58,
+  planar_threshold=.1, yaw_threshold=.2,
+):
+  """Signed whole-body contact match to the commanded gait phase."""
+  cmd = env.command_manager.get_term(command_name)
+  contact = _foot_contacts(env, sensor_name)
+  desired = ((cmd.phase + cmd.phase_offsets) % 1.0) < duty_factor
+  raw = ((2 * contact.float() - 1) * (2 * desired.float() - 1)).mean(dim=-1)
+  active = _active_command(env, command_name, planar_threshold, yaw_threshold)
+  result = raw * active.float()
+  _log_mean(env, "Metrics/gait_contact_match", result)
+  return result
+
+
+def support_deficit(
+  env, command_name="gait", sensor_name="feet_ground_contact",
+  planar_threshold=.1, yaw_threshold=.2,
+):
+  """Normalized support shortfall; pronk is explicitly exempt."""
+  cmd = env.command_manager.get_term(command_name)
+  minimum = torch.tensor(
+    (2, 2, 1, 0), device=env.device, dtype=torch.long
+  )[cmd.gait_id]
+  contacts = _foot_contacts(env, sensor_name).sum(dim=-1)
+  raw = (minimum - contacts).clamp(min=0) / minimum.clamp_min(1)
+  active = _active_command(env, command_name, planar_threshold, yaw_threshold)
+  result = raw * active.float()
+  _log_mean(env, "Metrics/support_deficit", result)
+  _log_mean(env, "Metrics/contact_count_mean", contacts)
+  return result
+
+
+def all_air_nonpronk(
+  env, command_name="gait", sensor_name="feet_ground_contact",
+  planar_threshold=.1, yaw_threshold=.2,
+):
+  """Flag unsupported flight for gaits where all-leg flight is not commanded."""
+  cmd = env.command_manager.get_term(command_name)
+  all_air = ~_foot_contacts(env, sensor_name).any(dim=-1)
+  active = _active_command(env, command_name, planar_threshold, yaw_threshold)
+  result = (all_air & active & (cmd.gait_id != 3)).float()
+  _log_mean(env, "Metrics/all_air_fraction", result)
+  return result
+
+
+def fall_termination(
+  env, steps_per_iteration=24, zero_until_iteration=200,
+  ramp_until_iteration=800,
+):
+  """Scheduled one-step cost for a non-timeout termination.
+
+  The RewardManager applies this raw value as ``weight * value * step_dt``.
+  Keeping the raw value at zero during early PPO iterations avoids suppressing
+  exploration before a stepping policy has emerged.
+  """
+  if ramp_until_iteration <= zero_until_iteration:
+    raise ValueError("ramp_until_iteration must be greater than zero_until_iteration")
+  terminated = mjlab_mdp.is_terminated(env)
+  iteration = env.common_step_counter / steps_per_iteration
+  ramp = min(
+    max(
+      (iteration - zero_until_iteration)
+      / (ramp_until_iteration - zero_until_iteration),
+      0.0,
+    ),
+    1.0,
+  )
+  _log_mean(env, "Metrics/fall_rate", terminated)
+  _log_mean(env, "Metrics/fall_termination_ramp", torch.ones_like(terminated) * ramp)
+  return terminated * ramp
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)

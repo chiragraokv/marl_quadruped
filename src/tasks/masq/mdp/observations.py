@@ -5,12 +5,12 @@ def previous_previous_action(env):
 
 def temporal_director(env, leg_index: int, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)
-  return torch.sin(2 * torch.pi * (cmd.cadence * cmd.phase +
+  return torch.sin(2 * torch.pi * (cmd.phase +
                                    cmd.phase_offsets[:, leg_index:leg_index + 1]))
 
 def temporal_director_all(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)
-  return torch.sin(2 * torch.pi * (cmd.cadence * cmd.phase + cmd.phase_offsets))
+  return torch.sin(2 * torch.pi * (cmd.phase + cmd.phase_offsets))
 
 def leg_observation(env, leg_index: int, command_name="gait"):
   # The second action history slot resolves the paper's ambiguous a_t input.

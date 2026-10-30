@@ -1,31 +1,12 @@
-import wandb
 import torch
 
-from rsl_rl.utils import wandb_utils
 from rsl_rl.utils.logger import Logger
 from src.tasks.velocity.rl.runner import VelocityOnPolicyRunner
 from .plots import generate_experiment_plots
 
 
-class _CompatibleWandbSummaryWriter(wandb_utils.WandbSummaryWriter):
-  """RSL-RL W&B writer compatible with releases that removed start_method."""
-
-  def __init__(self, *args, **kwargs):
-    original_settings = wandb.Settings
-
-    def compatible_settings(*settings_args, **settings_kwargs):
-      settings_kwargs.pop("start_method", None)
-      return original_settings(*settings_args, **settings_kwargs)
-
-    wandb.Settings = compatible_settings
-    try:
-      super().__init__(*args, **kwargs)
-    finally:
-      wandb.Settings = original_settings
-
-
 class _MASQLogger(Logger):
-  """Adds survival diagnostics that the stock RSL-RL logger does not expose."""
+  """Adds episode-length and termination diagnostics for gait evaluation."""
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -81,11 +62,9 @@ class _MASQLogger(Logger):
     self._termination_counts = {name: 0.0 for name in self._termination_counts}
 
 class MASQOnPolicyRunner(VelocityOnPolicyRunner):
-  """MASQ runner with folded actor export and W&B experiment logging."""
+  """MASQ runner with folded actor export and local experiment logging."""
 
   def __init__(self, *args, **kwargs):
-    # Logger imports this symbol lazily when learn() starts.
-    wandb_utils.WandbSummaryWriter = _CompatibleWandbSummaryWriter
     super().__init__(*args, **kwargs)
     self.logger = _MASQLogger(
       log_dir=self.logger.log_dir,

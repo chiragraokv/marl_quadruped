@@ -7,8 +7,7 @@ def unitree_go2_masq_ppo_runner_cfg():
   cfg.critic.class_name = "rsl_rl.models:MLPModel"
   cfg.algorithm.class_name = "src.tasks.masq.rl.algorithm:MASQPPO"
   cfg.experiment_name = "go2_masq"
-  # The MASQ runner supplies a compatibility adapter for newer wandb releases.
-  # RSL-RL logs Reward/* terms separately and Train/mean_reward as the sum.
-  cfg.logger = "wandb"
-  cfg.wandb_project = "unitree-go2-masq"
+  # Experiments stay local by default.  TensorBoard is consumed by the MASQ
+  # plotter and avoids starting a W&B run during smoke or training jobs.
+  cfg.logger = "tensorboard"
   return cfg

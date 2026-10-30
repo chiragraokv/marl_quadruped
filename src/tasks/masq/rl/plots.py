@@ -1,4 +1,9 @@
-"""Automatic post-training plots for MASQ experiments."""
+"""Automatic post-training plots for MASQ experiments.
+
+The plot set is deliberately limited to terms configured for the run.  This
+prevents a reward revision from inheriting obsolete plots (for example V4's
+survival ramp) and making a missing signal look like a zero-valued one.
+"""
 
 from __future__ import annotations
 
@@ -10,16 +15,9 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 
 PLOT_GROUPS = {
-  "episode_performance": (
-    "Train/mean_reward",
+  "episode_length": (
     "Train/mean_episode_length",
     "Train/max_episode_length",
-  ),
-  "survival_and_tracking": (
-    "Episode_Reward/survival",
-    "Episode_Reward/track_lin_vel",
-    "Episode_Reward/track_angular_velocity",
-    "Metrics/survival_ramp",
   ),
   "termination_counts": (
     "TerminationCount/time_out",
@@ -32,19 +30,17 @@ PLOT_GROUPS = {
     "Episode_Termination/fell_over",
     "Episode_Termination/illegal_contact",
   ),
-  "losses": (
-    "Loss/value",
-    "Loss/surrogate",
-    "Loss/entropy",
-    "Loss/learning_rate",
-  ),
-  "policy_and_performance": (
-    "Policy/mean_std",
-    "Perf/total_fps",
-    "Perf/collection_time",
-    "Perf/learning_time",
-  ),
 }
+
+GAIT_DIAGNOSTIC_PREFIXES = ("Metrics/gait_", "Metrics/contact_")
+GAIT_DIAGNOSTIC_TAGS = (
+  "Metrics/all_air_fraction",
+  "Metrics/support_deficit",
+  "Metrics/fall_rate",
+  "Metrics/fall_termination_ramp",
+  "Metrics/linear_velocity_error",
+  "Metrics/angular_velocity_error",
+)
 
 
 def _plot_group(accumulator, tags, output, title):
@@ -66,8 +62,25 @@ def _plot_group(accumulator, tags, output, title):
   return True
 
 
+def _current_reward_tags(scalar_tags: list[str]) -> list[str]:
+  """Return only reward terms actually emitted by the current run."""
+  return [tag for tag in scalar_tags if tag.startswith("Episode_Reward/")]
+
+
+def _gait_diagnostic_tags(scalar_tags: list[str]) -> list[str]:
+  """Return opt-in contact/gait metrics without plotting unrelated scalars."""
+  return [
+    tag for tag in scalar_tags
+    if tag in GAIT_DIAGNOSTIC_TAGS or tag.startswith(GAIT_DIAGNOSTIC_PREFIXES)
+  ]
+
+
 def generate_experiment_plots(run_dir: str | Path) -> list[Path]:
-  """Generate grouped PNGs and a complete scalar CSV from one run directory."""
+  """Generate current-reward and gait/safety plots from one run directory.
+
+  Reward terms are discovered from TensorBoard rather than kept in a historic
+  hard-coded list.  Videos remain the source of truth for gait quality.
+  """
   run_dir = Path(run_dir)
   output_dir = run_dir / "plots"
   output_dir.mkdir(parents=True, exist_ok=True)
@@ -78,11 +91,12 @@ def generate_experiment_plots(run_dir: str | Path) -> list[Path]:
     return []
 
   generated = []
-  csv_path = output_dir / "all_scalars.csv"
+  reward_tags = _current_reward_tags(scalar_tags)
+  csv_path = output_dir / "current_reward_terms.csv"
   with csv_path.open("w", newline="") as stream:
     writer = csv.writer(stream)
     writer.writerow(("tag", "iteration", "wall_time", "value"))
-    for tag in scalar_tags:
+    for tag in reward_tags:
       for value in accumulator.Scalars(tag):
         writer.writerow((tag, value.step, value.wall_time, value.value))
   generated.append(csv_path)
@@ -94,19 +108,14 @@ def generate_experiment_plots(run_dir: str | Path) -> list[Path]:
       generated.append(output)
       assigned.update(tags)
 
-  reward_tags = [tag for tag in scalar_tags if tag.startswith("Episode_Reward/")]
-  reward_output = output_dir / "all_reward_terms.png"
-  if _plot_group(accumulator, reward_tags, reward_output, "all_reward_terms"):
+  reward_output = output_dir / "current_reward_terms.png"
+  if _plot_group(accumulator, reward_tags, reward_output, "current_reward_terms"):
     generated.append(reward_output)
     assigned.update(reward_tags)
 
-  metric_tags = [
-    tag for tag in scalar_tags
-    if (tag.startswith("Metrics/") or tag.startswith("Episode_Metrics/"))
-    and tag not in assigned
-  ]
-  metric_output = output_dir / "all_metrics.png"
-  if _plot_group(accumulator, metric_tags, metric_output, "all_metrics"):
+  gait_tags = _gait_diagnostic_tags(scalar_tags)
+  metric_output = output_dir / "gait_diagnostics.png"
+  if _plot_group(accumulator, gait_tags, metric_output, "gait_diagnostics"):
     generated.append(metric_output)
 
   return generated

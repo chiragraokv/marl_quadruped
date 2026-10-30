@@ -34,3 +34,18 @@
 
 The full simulator smoke test and pytest suite require the repository's ML
 dependencies to be installed in the active test environment.
+
+![V4](image.png)
+## Issues
+The progress focused reward system has forced the quadruped to move, but thie issue is it launches all 4 legs at the same time, Hence making it fall. Now this issues is keeping this focus on movement and focusing on collaboration bw legs
+
+Looking at graphs:
+
+![Tracking](/marl_quadruped/logs/rsl_rl/go2_masq/V4/plots/survival_and_tracking.png)
+
+![Episodes](/marl_quadruped/logs/rsl_rl/go2_masq/V4/plots/episode_performance.png)
+
+- as designed tracking is -ve and not only +ve which is desired 
+- Episode mean reward has gone up (tho its -ve) while mean episode length goes down. which is not desired.
+- One interesting thing is feet_stance_time penalty is 0. Hence this encouraged it to not plant it feet for long hence making it launch itself. This has to be adressed. 
+- Major challenge is understanding the what the whole reward structure will cumulatively affect the performance before training.
