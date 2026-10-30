@@ -49,3 +49,9 @@ logs/rsl_rl/go2_masq/2026-10-29_21-01-52
   exponential value to be near zero.
 - A longer controlled training run is still required to determine whether v3
   improves visual gait quality and reduces the freeze exploit.
+
+## results:
+Resulted in reward hacking
+- stay survival penality scaled by veocity tracking didnt help: improvement would be to penalise it when it dosent move
+- possible regularization may be making it find a reward plateau and not encourageing exploration
+- The kernel is bounded in (0, 1], so it never goes negative. The threshold penalty from the spec was never added, so standing under an active command still earns positive reward:Command 0.5 m/s, robot standing: error = 0.25, reward = exp(-1) ≈ +0.37 per step.That’s the reason the policy has no incentive to walk. The tracked-command case gives about 1.0, but standing still is still well above zero.

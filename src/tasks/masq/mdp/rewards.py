@@ -6,7 +6,7 @@ from mjlab.envs import mdp as mjlab_mdp
 # Complete MASQ Table-I registry. Several entries intentionally reuse
 # implementations already validated by the stock velocity task/mjlab.
 MASQ_REWARD_SCALES = {
-  # reward_v3.yaml names these track_lin_vel_xy and track_ang_vel_z.
+  # reward_v4.yaml names these track_lin_vel_xy and track_ang_vel_z.
   "track_linear_velocity": 1.5,
   "track_angular_velocity": 0.75,
   "body_orientation_l2": -1.0,
@@ -18,14 +18,13 @@ MASQ_REWARD_SCALES = {
   "base_height": -10.0,
   "feet_air_time": 1.0,
   "feet_stance_time": -0.05,
-  "stand_still_penalty": -1.0,
+  "alive_moving": 0.5,
   "torques": -1e-5,
   "dof_vel": 0.0,
   "dof_acc": -2.5e-7,
   # reward_v2.yaml calls this undesired_contact.
   "collision": -1.0,
   "action_rate": -1e-2,
-  "survival": 0.5,
   "jump": 0.0,
   "feet_slip": -0.1,
   "action_smooth_1": 0.0,
@@ -50,18 +49,32 @@ action_smooth_1 = mjlab_mdp.action_rate_l2
 action_smooth_2 = mjlab_mdp.action_acc_l2
 feet_slip = velocity_rewards.feet_slip
 
-def track_lin_vel_xy(env, command_name="gait", std=.5):
-  """Exact v3 XY-only command tracking kernel."""
+def track_lin_vel_xy(
+  env, command_name="gait", sigma=.25, threshold=.2, threshold_scale=2.0
+):
+  """Track planar velocity, with a negative tail for large errors.
+
+  The exponential kernel alone is always positive and therefore permits a
+  stationary policy to settle on a reward plateau.  The v4 threshold term
+  makes sufficiently poor tracking explicitly costly.
+  """
   command = env.command_manager.get_command(command_name)
   actual = env.scene["robot"].data.root_link_lin_vel_b
-  error = (command[:, :2] - actual[:, :2]).square().sum(-1)
-  return torch.exp(-error / std**2)
+  error = torch.linalg.vector_norm(command[:, :2] - actual[:, :2], dim=-1)
+  return torch.exp(-error.square() / sigma) - threshold_scale * torch.clamp(
+    error - threshold, min=0.0
+  )
 
-def track_ang_vel_z(env, command_name="gait", std=.5):
-  """Exact v3 yaw-only command tracking kernel."""
+def track_ang_vel_z(
+  env, command_name="gait", sigma=.25, threshold=.2, threshold_scale=2.0
+):
+  """Track yaw rate, with the same negative large-error tail as v4."""
   command = env.command_manager.get_command(command_name)
   actual = env.scene["robot"].data.root_link_ang_vel_b[:, 2]
-  return torch.exp(-(command[:, 2] - actual).square() / std**2)
+  error = torch.abs(command[:, 2] - actual)
+  return torch.exp(-error.square() / sigma) - threshold_scale * torch.clamp(
+    error - threshold, min=0.0
+  )
 
 def lin_vel_z(env):
   return env.scene["robot"].data.root_link_lin_vel_b[:, 2].square()
@@ -69,10 +82,13 @@ def lin_vel_z(env):
 def ang_vel_xy(env):
   return env.scene["robot"].data.root_link_ang_vel_b[:, :2].square().sum(-1)
 
-def base_height(env, target_height=.32):
-  """Squared base-height error around Go2's nominal standing height."""
+def base_height(env, target_height=.30, tolerance=.03):
+  """Penalize base height only outside the target's allowed deadband."""
   height = env.scene["robot"].data.root_link_pos_w[:, 2]
-  return (height - target_height).square()
+  error_outside_band = torch.clamp(
+    torch.abs(height - target_height) - tolerance, min=0.0
+  )
+  return error_outside_band.square()
 
 def feet_air_time(env, sensor_name="feet_ground_contact", threshold=.5):
   """Reward completed swing duration at the instant each foot touches down."""
@@ -87,46 +103,16 @@ def feet_stance_time(
   contact_time = env.scene[sensor_name].data.current_contact_time
   return torch.clamp(contact_time - stance_limit, min=0.0).sum(-1)
 
-def stand_still_penalty(
-  env, command_name="gait", command_threshold=.1, sigma_still=.1
-):
-  """Penalize near-zero joint motion under a nonzero planar command."""
+def alive_moving(env, command_name="gait", eps_cmd=.1, v_min=.1):
+  """Reward survival while executing an active planar velocity command."""
   command = env.command_manager.get_command(command_name)
-  command_active = torch.linalg.vector_norm(command[:, :2], dim=-1) > command_threshold
-  joint_speed_sq = env.scene["robot"].data.joint_vel.square().sum(-1)
-  frozen = torch.exp(-joint_speed_sq / sigma_still)
-  return frozen * command_active.float()
-
-def survival_bonus(
-  env, tau_s: float = 1.0, command_name: str = "gait",
-  tracking_std: float = .5,
-):
-  """Saturating survival bonus gated by planar command-tracking quality."""
-  episode_time = env.episode_length_buf.float() * env.step_dt
-  alive = 1.0 - torch.exp(-episode_time / tau_s)
-  tracking_quality = track_lin_vel_xy(env, command_name, tracking_std)
-  return alive * tracking_quality
-
-def warmup_ramp(
-  env, start_iter: int = 0, ramp_iters: int = 200, steps_per_iter: int = 24
-):
-  """Linear 0 -> 1 ramp over PPO iterations, starting at start_iter."""
-  start = start_iter * steps_per_iter
-  ramp = ramp_iters * steps_per_iter
-  if ramp <= 0:
-    frac = 1.0 if env.common_step_counter >= start else 0.0
-  else:
-    frac = min(max((env.common_step_counter - start) / ramp, 0.0), 1.0)
-  return torch.full_like(env.episode_length_buf, frac, dtype=torch.float)
-
-def survival_reward(
-  env, tau_s: float = 1.0, start_iter: int = 0, ramp_iters: int = 200,
-  steps_per_iter: int = 24, command_name: str = "gait", tracking_std: float = .5,
-):
-  """Ramped survival bonus gated by planar command-tracking quality."""
-  ramp = warmup_ramp(env, start_iter, ramp_iters, steps_per_iter)
-  env.extras.setdefault("log", {})["Metrics/survival_ramp"] = ramp.mean()
-  return survival_bonus(env, tau_s, command_name, tracking_std) * ramp
+  command_speed = torch.linalg.vector_norm(command[:, :2], dim=-1)
+  body_speed = torch.linalg.vector_norm(
+    env.scene["robot"].data.root_link_lin_vel_b[:, :2], dim=-1
+  )
+  return (2.0 * torch.tanh(body_speed / v_min) - 1.0) * (
+    command_speed > eps_cmd
+  ).float()
 
 def jump(env, command_name="gait"):
   cmd = env.command_manager.get_term(command_name)

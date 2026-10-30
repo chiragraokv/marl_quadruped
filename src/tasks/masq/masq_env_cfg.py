@@ -59,55 +59,51 @@ def make_masq_env_cfg(
   }
   scales = mdp.MASQ_REWARD_SCALES
   cfg.rewards = {
-    "track_linear_velocity": RewardTermCfg(func=mdp.track_lin_vel_xy, weight=scales["track_linear_velocity"], params={"command_name":"gait", "std":.5}),
-    "track_angular_velocity": RewardTermCfg(func=mdp.track_ang_vel_z, weight=scales["track_angular_velocity"], params={"command_name":"gait", "std":.5}),
+    "track_linear_velocity": RewardTermCfg(func=mdp.track_lin_vel_xy, weight=scales["track_linear_velocity"], params={"command_name":"gait", "sigma":.25, "threshold":.2}),
+    "track_angular_velocity": RewardTermCfg(func=mdp.track_ang_vel_z, weight=scales["track_angular_velocity"], params={"command_name":"gait", "sigma":.25, "threshold":.2}),
     # Stability terms copied from the validated velocity task.  These close
     # the reward-hacking loophole where velocity can be tracked with a tilted,
     # violently rotating, or self-colliding body.
     "body_orientation_l2": RewardTermCfg(
       func=mdp.body_orientation_l2, weight=scales["body_orientation_l2"],
       params={"asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
-    "self_collisions": RewardTermCfg(
-      func=mdp.self_collision_cost, weight=scales["self_collisions"],
-      params={"sensor_name": self_collision_cfg.name, "force_threshold": 10.0}),
-    "body_ang_vel": RewardTermCfg(
-      func=mdp.body_angular_velocity_penalty, weight=scales["body_ang_vel"],
-      params={"asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
-    "angular_momentum": RewardTermCfg(
-      func=mdp.angular_momentum_penalty, weight=scales["angular_momentum"],
-      params={"sensor_name": "robot/root_angmom"}),
+    # Disabled for reward_v4 experiment; keep available for later ablations.
+    # "self_collisions": RewardTermCfg(
+    #   func=mdp.self_collision_cost, weight=scales["self_collisions"],
+    #   params={"sensor_name": self_collision_cfg.name, "force_threshold": 10.0}),
+    # "body_ang_vel": RewardTermCfg(
+    #   func=mdp.body_angular_velocity_penalty, weight=scales["body_ang_vel"],
+    #   params={"asset_cfg": SceneEntityCfg("robot", body_names=("base_link",))}),
+    # "angular_momentum": RewardTermCfg(
+    #   func=mdp.angular_momentum_penalty, weight=scales["angular_momentum"],
+    #   params={"sensor_name": "robot/root_angmom"}),
     "lin_vel_z": RewardTermCfg(func=mdp.lin_vel_z, weight=scales["lin_vel_z"]),
     "ang_vel_xy": RewardTermCfg(func=mdp.ang_vel_xy, weight=scales["ang_vel_xy"]),
     "base_height": RewardTermCfg(
       func=mdp.base_height, weight=scales["base_height"],
-      params={"target_height": 0.32}),
+      params={"target_height": 0.30, "tolerance": 0.03}),
     "feet_air_time": RewardTermCfg(
       func=mdp.feet_air_time, weight=scales["feet_air_time"],
       params={"sensor_name": "feet_ground_contact", "threshold": 0.5}),
     "feet_stance_time": RewardTermCfg(
       func=mdp.feet_stance_time, weight=scales["feet_stance_time"],
       params={"sensor_name": "feet_ground_contact", "stance_limit": 1.25}),
-    "stand_still_penalty": RewardTermCfg(
-      func=mdp.stand_still_penalty, weight=scales["stand_still_penalty"],
-      params={"command_name": "gait", "command_threshold": 0.1,
-              "sigma_still": 0.1}),
-    "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
-    "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
-    "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
+    "alive_moving": RewardTermCfg(
+      func=mdp.alive_moving, weight=scales["alive_moving"],
+      params={"command_name": "gait", "eps_cmd": 0.1, "v_min": 0.1}),
+    # Disabled for reward_v4 experiment; keep available for later ablations.
+    # "torques": RewardTermCfg(func=envs_mdp.joint_torques_l2, weight=scales["torques"]),
+    # "dof_vel": RewardTermCfg(func=envs_mdp.joint_vel_l2, weight=scales["dof_vel"]),
+    # "dof_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=scales["dof_acc"]),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_rate"]),
-    "survival": RewardTermCfg(
-      func=mdp.survival_reward, weight=scales["survival"],
-      params={"tau_s": 1.0, "start_iter": 0, "ramp_iters": 200,
-              "steps_per_iter": steps_per_iter, "command_name": "gait",
-              "tracking_std": 0.5}),
-    "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
-    "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
-    "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),
-    "jump": RewardTermCfg(func=mdp.jump, weight=scales["jump"], params={"command_name":"gait"}),
+    # "action_smooth_1": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=scales["action_smooth_1"]),
+    # "action_smooth_2": RewardTermCfg(func=envs_mdp.action_acc_l2, weight=scales["action_smooth_2"]),
+    # "feet_impact_vel": RewardTermCfg(func=mdp.feet_impact_velocity, weight=scales["feet_impact_vel"]),
+    # "jump": RewardTermCfg(func=mdp.jump, weight=scales["jump"], params={"command_name":"gait"}),
     "feet_slip": RewardTermCfg(func=mdp.feet_slip, weight=scales["feet_slip"], params={"sensor_name":"feet_ground_contact", "command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
     "collision": RewardTermCfg(func=mdp.collision, weight=scales["collision"]),
-    "raibert": RewardTermCfg(func=mdp.raibert, weight=scales["raibert"], params={"command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
-    "track_contact_shaped_vel": RewardTermCfg(func=mdp.tracking_contacts_shaped_velocity, weight=scales["track_contact_shaped_vel"], params={"asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
+    # "raibert": RewardTermCfg(func=mdp.raibert, weight=scales["raibert"], params={"command_name":"gait", "asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
+    # "track_contact_shaped_vel": RewardTermCfg(func=mdp.tracking_contacts_shaped_velocity, weight=scales["track_contact_shaped_vel"], params={"asset_cfg":SceneEntityCfg("robot", site_names=("FR", "FL", "RR", "RL"))}),
   }
   cfg.curriculum = {
     "multi_gait": CurriculumTermCfg(
