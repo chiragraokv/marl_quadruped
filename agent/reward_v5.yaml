@@ -1,0 +1,204 @@
+# Proposed MASQ reward design. This file documents V5; the environment code
+# still uses V4 until the reward functions and registrations are implemented.
+# Each step's contribution is raw_value * scale * env.step_dt in mjlab.
+version: 5
+status: proposed
+
+conventions:
+  reward_scope: shared_body_reward_broadcast_to_four_agents
+  foot_order: [FR, FL, RR, RL]
+  initial_gait: trot
+  gait_ids: {pace: 0, trot: 1, bound: 2, pronk: 3}
+  gait_offsets:
+    pace: [0.0, 0.5, 0.0, 0.5]
+    trot: [0.0, 0.5, 0.5, 0.0]
+    bound: [0.0, 0.0, 0.5, 0.5]
+    pronk: [0.0, 0.0, 0.0, 0.0]
+  duty_factor: 0.58
+  active_command: "||v_cmd_xy|| > 0.1 m/s or |w_cmd_z| > 0.2 rad/s"
+  planar_command: "||v_cmd_xy|| > 0.1 m/s"
+  contact: "c_i = 1 when foot i is in ground contact, else 0"
+  desired_stance: "d_i = 1[((phase + offset_i) % 1) < duty_factor]"
+  phase: "Use GaitCommand.phase directly; it already integrates cadence."
+  support_minimum: {pace: 2, trot: 2, bound: 1, pronk: 0}
+  stationary_command: "Gait and support shaping return 0; stability still applies."
+
+rewards:
+  # Keep V4's signed tracking errors so ignoring a movement command can hurt.
+  - id: track_lin_vel_xy
+    config_key: track_linear_velocity
+    type: task
+    enabled: true
+    scale: 1.5
+    equation: "exp(-e_xy^2 / 0.25) - 2.0 * max(0, e_xy - 0.2)"
+    gate: always
+    unit: dimensionless
+    notes: "e_xy = ||v_cmd_xy - v_b_xy|| in m/s; preserve the V4 kernel."
+
+  - id: track_ang_vel_z
+    config_key: track_angular_velocity
+    type: task
+    enabled: true
+    scale: 0.75
+    equation: "exp(-e_yaw^2 / 0.25) - 2.0 * max(0, e_yaw - 0.2)"
+    gate: always
+    unit: dimensionless
+    notes: "e_yaw = |w_cmd_z - w_b_z| in rad/s; preserve the V4 kernel."
+
+  - id: alive_moving
+    config_key: alive_moving
+    type: task
+    enabled: true
+    scale: 0.2
+    equation: "1[planar_command] * 1[n_contact >= 1] * (2*tanh(||v_b_xy|| / 0.1) - 1)"
+    gate: planar_command_and_at_least_one_supporting_foot
+    unit: dimensionless
+    notes: "No speed bonus while all four feet are airborne; standing under a planar command remains negative."
+
+  # One body-level gait reward ties all four leg agents to one schedule.
+  - id: gait_contact_match
+    config_key: gait_contact_match
+    type: gait
+    enabled: true
+    scale: 1.0
+    equation: "1[active_command] * mean_i((2*c_i - 1) * (2*d_i - 1))"
+    gate: active_command
+    unit: dimensionless
+    range: [-1.0, 1.0]
+    notes: "Use the commanded gait's phase and offsets. Compare contacts in FR, FL, RR, RL order."
+
+  - id: support_deficit
+    config_key: support_deficit
+    type: gait
+    enabled: true
+    scale: -0.5
+    equation: "1[active_command and m > 0] * max(0, m - n_contact) / m"
+    gate: active_command_and_nonpronk
+    unit: dimensionless
+    notes: "m is the gait-specific support_minimum. Use 2 for pace/trot, 1 for bound; no penalty for commanded pronk."
+
+  - id: all_air_nonpronk
+    config_key: all_air_nonpronk
+    type: gait
+    enabled: true
+    scale: -3.0
+    equation: "1[active_command] * 1[gait_id != pronk] * 1[n_contact == 0]"
+    gate: active_command_and_nonpronk
+    unit: dimensionless
+    notes: "Targets the V4 all-leg launch; valid pronk flight must not trigger it."
+
+  - id: fall_termination
+    config_key: fall_termination
+    type: safety
+    enabled: true
+    scale: -50.0
+    equation: "1[non_timeout_termination] * clamp((ppo_iteration - 200) / 600, 0, 1)"
+    gate: non_timeout_termination_after_linear_exploration_ramp
+    unit: dimensionless
+    notes: "Use mjlab.envs.mdp.is_terminated; timeouts are excluded. Cost is zero through PPO iteration 200, ramps linearly to scale by iteration 800, then is scale*step_dt (about -1 if dt=0.02 s)."
+
+  # Preserve V4's uprightness, height, and contact safeguards.
+  - id: body_orientation
+    config_key: body_orientation_l2
+    type: stability
+    enabled: true
+    scale: -1.0
+    equation: "||g_b_xy||^2"
+    gate: always
+    unit: dimensionless
+
+  - id: lin_vel_z
+    config_key: lin_vel_z
+    type: stability
+    enabled: true
+    scale: -2.0
+    equation: "v_b_z^2"
+    gate: always
+    unit: "(m/s)^2"
+
+  - id: ang_vel_xy
+    config_key: ang_vel_xy
+    type: stability
+    enabled: true
+    scale: -0.05
+    equation: "||omega_b_xy||^2"
+    gate: always
+    unit: "(rad/s)^2"
+
+  - id: base_height
+    config_key: base_height
+    type: stability
+    enabled: true
+    scale: -10.0
+    equation: "max(0, abs(h_base - 0.30) - 0.03)^2"
+    gate: always
+    unit: "m^2"
+
+  - id: undesired_contact
+    config_key: collision
+    type: stability
+    enabled: true
+    scale: -1.0
+    equation: "count(nonfoot_ground_contact)"
+    gate: always
+    unit: count
+
+  - id: feet_slip
+    config_key: feet_slip
+    type: gait
+    enabled: true
+    scale: -0.1
+    equation: "sum_i(c_i * ||v_foot_i_xy||^2)"
+    gate: foot_contact
+    unit: "(m/s)^2"
+
+  # First and second action differences serve distinct smoothing purposes.
+  - id: action_rate
+    config_key: action_rate
+    type: regularization
+    enabled: true
+    scale: -0.01
+    equation: "||a_t - a_(t-1)||^2"
+    gate: always
+    unit: action_squared
+
+  - id: action_smooth_2
+    config_key: action_smooth_2
+    type: regularization
+    enabled: true
+    scale: -0.005
+    equation: "||a_t - 2*a_(t-1) + a_(t-2)||^2"
+    gate: always
+    unit: action_squared
+    notes: "Use mjlab.envs.mdp.action_acc_l2. Do not add another first-difference term."
+
+  - id: dof_acc
+    config_key: dof_acc
+    type: regularization
+    enabled: true
+    scale: -0.00000025
+    equation: "sum_j(qddot_j^2)"
+    gate: always
+    unit: "(rad/s^2)^2"
+    notes: "Use mjlab.envs.mdp.joint_acc_l2; check its actual rollout magnitude before training at scale."
+
+  # Keep these visible for later ablations, with no active V5 contribution.
+  - id: feet_air_time
+    config_key: feet_air_time
+    type: gait
+    enabled: false
+    scale: 0.0
+    equation: "sum_i((t_air_i - 0.5) * first_contact_i)"
+    gate: disabled
+    unit: seconds
+    notes: "V4 can pay all four feet on collective landing. Measure raw behavior separately if desired."
+
+  - id: feet_stance_time
+    config_key: feet_stance_time
+    type: gait
+    enabled: false
+    scale: 0.0
+    equation: "sum_i(max(0, t_stance_i - 1.25) * c_i)"
+    gate: disabled
+    unit: seconds
+    notes: "The V4 long-stance penalty stayed at zero; lowering its threshold may increase foot lifting."

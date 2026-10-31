@@ -11,7 +11,7 @@ def unitree_go2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   """Create RL runner configuration for Unitree Go2 velocity task."""
   return RslRlOnPolicyRunnerCfg(
     actor=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
+      hidden_dims=(1024, 512, 256, 128),
       activation="elu",
       obs_normalization=True,
       distribution_cfg={
@@ -21,7 +21,7 @@ def unitree_go2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       },
     ),
     critic=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
+      hidden_dims=(1024, 512, 256, 128),
       activation="elu",
       obs_normalization=True,
     ),
@@ -40,6 +40,7 @@ def unitree_go2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="go2_velocity",
+    logger="tensorboard",
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=10001,

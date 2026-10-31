@@ -1,0 +1,76 @@
+rewards:
+  # --- Task ---
+  - id: track_lin_vel_xy
+    type: task
+    scale: 1.5
+    equation: "exp(-e^2 / sigma_lin) - 2.0 * max(0, e - thr_lin)"
+    notes: "e = ||v_cmd_xy - v_b_xy|| (m/s). thr_lin ~ 0.2 m/s. sigma_lin ~ 0.25. Positive within threshold, negative beyond it."
+
+  - id: track_ang_vel_z
+    type: task
+    scale: 0.75
+    equation: "exp(-e_yaw^2 / sigma_yaw) - 2.0 * max(0, e_yaw - thr_yaw)"
+    notes: "e_yaw = |w_cmd_z - w_b_z| (rad/s). thr_yaw ~ 0.2 rad/s. sigma_yaw ~ 0.25."
+
+  # --- Alive while moving (conditional survival) ---
+  - id: alive_moving
+    type: task
+    scale: 0.5
+    equation: "1[||v_cmd_xy|| > eps_cmd] * (2 * tanh(||v_b_xy|| / v_min) - 1)"
+    notes: >
+      Applied each step the robot is not terminated, so falling ends the reward stream.
+      Moving (||v_b_xy|| >> v_min) gives about +1. Standing gives -1.
+      Gated by an active movement command, so standing is not penalized when v_cmd = 0.
+      eps_cmd ~ 0.1 m/s, v_min ~ 0.1 m/s.
+
+  # --- Stability (keeps the base up) ---
+  - id: body_orientation
+    type: stability
+    scale: -1.0
+    equation: "||g_b_xy||^2"
+
+  - id: lin_vel_z
+    type: stability
+    scale: -2.0
+    equation: "v_b_z^2"
+
+  - id: ang_vel_xy
+    type: stability
+    scale: -0.05
+    equation: "||omega_b_xy||^2"
+
+  - id: base_height
+    type: stability
+    scale: -10.0
+    equation: "max(0, abs(h_base - 0.30) - 0.03)^2"
+    notes: "Target height is 0.30 m with a +/-0.03 m deadband; no jump command."
+
+  # --- Gait ---
+  - id: feet_air_time
+    type: gait
+    scale: 1.0
+    equation: "sum((t_air_i - 0.5) * first_contact_i)"
+    notes: "Rewards only on touchdown."
+
+  - id: feet_slip
+    type: gait
+    scale: -0.1
+    equation: "sum(contact_i * ||v_foot_i_xy||^2)"
+
+  - id: feet_stance_time
+    type: gait
+    scale: -0.05
+    equation: "sum(max(0, t_stance_i - stance_limit) for foot_i in contact)"
+    notes: "stance_limit ~ 1.0 to 1.5 s. Penalizes a planted foot that never lifts."
+
+  - id: undesired_contact
+    type: gait
+    scale: -1.0
+    equation: "count(nonfoot_ground_contact)"
+
+  # --- Regularization ---
+  - id: action_rate
+    type: regularization
+    scale: -0.01
+    equation: "||a_t - a_(t-1)||^2"
+    notes: "Penalizes jitter, not motion."

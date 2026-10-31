@@ -1,0 +1,148 @@
+# Reward table for MASQ (arXiv:2408.13759, Table I)
+# Format: each reward r_k(t) is a term; total reward R(t) = sum_k scale_k * r_k(t)
+# Sign convention: scale is applied as given, so negative scale = penalty.
+# Sum over "legs" means over i in {1..4}; sum over "motors" means over i in {1..12}.
+
+notation:
+  v_cmd:      commanded body linear velocity (x, y)
+  v_b:        measured body linear velocity (3-vector)
+  v_b_z:      measured body vertical velocity (z component of v_b)
+  w_cmd_z:    commanded yaw rate
+  w_b:        measured body angular velocity (3-vector)
+  w_b_z:      measured body yaw rate (z component of w_b)
+  tau_i:      torque of motor i
+  v_d_i:      velocity of DOF/motor i
+  dt:         control timestep
+  a_t:        action vector at step t (12-dim, joint angle commands)
+  f_c:        contact force vector at a foot
+  v_f:        foot velocity
+  v_f_p:      foot velocity at touchdown (symbol v_{f,p} in source)
+  e_r:        Raibert heuristic error term
+  h_b:        body height
+  h_j:        target jump height
+  c_f:        foot contact indicator (inferred; definition not given in source)
+  c_s:        foot contact/impact indicator (inferred; definition not given in source)
+  c_d:        foot contact indicator for shaped velocity term (inferred; definition not given in source)
+
+constants:
+  sigma_t:    kernel width for linear velocity tracking (value not given in source)
+  sigma_yaw:  kernel width for yaw rate tracking (value not given in source)
+  sigma_gv:   kernel width for foot velocity shaping (value not given in source)
+  contact_force_threshold: 0.1   # used in collision term
+
+rewards:
+  - id: track_lin_vel
+    name: Tracking Linear Velocity
+    type: task
+    scale: 1.0
+    equation: exp(-||v_cmd - v_b||^2 / sigma_t)
+    range: (0, 1]
+    notes: Exponential kernel; maximal when v_b equals v_cmd.
+
+  - id: track_ang_vel
+    name: Tracking Angular Velocity
+    type: task
+    scale: 0.5
+    equation: exp(-(w_cmd_z - w_b_z)^2 / sigma_yaw)
+    range: (0, 1]
+    notes: Yaw-rate tracking only.
+
+  - id: lin_vel_z
+    name: Linear Velocity Z
+    type: penalty
+    scale: -0.02
+    equation: (v_b_z)^2
+    notes: Penalizes vertical body motion.
+
+  - id: ang_vel_xy
+    name: Angular Velocity XY
+    type: penalty
+    scale: -0.001
+    equation: ||w_b||^2
+    notes: Source writes the sum as "sum_i ||w_b||^2" with no index in the sum; implemented as a single body-rate norm. Name says XY but the source equation uses the full vector. Verify against the PDF.
+
+  - id: torques
+    name: Torques
+    type: penalty
+    scale: -0.00001
+    equation: sum_over_motors( tau_i^2 )
+    notes: Sum over the 12 motors. Source labels it "Angular Velocity Torques".
+
+  - id: dof_vel
+    name: DOF Velocity
+    type: penalty
+    scale: -0.0001
+    equation: sum_over_motors( v_d_i^2 )
+
+  - id: dof_acc
+    name: DOF Acceleration
+    type: penalty
+    scale: -0.00000025
+    equation: sum_over_motors( ((v_d_i_t - v_d_i_{t-1}) / dt)^2 )
+
+  - id: collision
+    name: Collision
+    type: penalty
+    scale: -5.0
+    equation: sum_over_feet( 1.0 * [ ||f_c|| > 0.1 ] )
+    notes: Indicator per foot; fires when contact force norm exceeds 0.1. Source sums without an explicit index; applied per foot.
+
+  - id: action_rate
+    name: Action Rate
+    type: penalty
+    scale: -0.01
+    equation: ||a_t - a_{t-1}||^2
+
+  - id: jump
+    name: Jump
+    type: task
+    scale: 10.0
+    equation: -(h_b - h_j)^2
+    notes: Sign is negative inside the equation, so the term is a penalty on height error despite the positive scale.
+
+  - id: feet_slip
+    name: Feet Slip
+    type: penalty
+    scale: -0.04
+    equation: sum_over_feet( c_f * ||v_f||^2 )
+    notes: c_f presumably gates the term to feet in contact.
+
+  - id: action_smooth_1
+    name: Action Smoothness 1
+    type: penalty
+    scale: -0.1
+    equation: sum_over_joints( (a_t - a_{t-1})^2 )
+    notes: First-order smoothness. Per-element squared difference, summed over action dimensions.
+
+  - id: action_smooth_2
+    name: Action Smoothness 2
+    type: penalty
+    scale: -0.1
+    equation: sum_over_joints( (a_t - 2*a_{t-1} + a_{t-2})^2 )
+    notes: Second-order smoothness.
+
+  - id: feet_impact_vel
+    name: Feet Impact Velocity
+    type: penalty
+    scale: 0.0
+    equation: sum_over_feet( c_s * ||v_f_p||^2 )
+    notes: Scale is 0.0 in source, so this term is inactive as configured.
+
+  - id: raibert
+    name: Raibert Heuristic
+    type: penalty
+    scale: -10.0
+    equation: sum_over_legs( ||e_r||^2 )
+    notes: e_r is the Raibert foot-placement error; its exact definition is not given in the source (see Raibert & Tello, 1986).
+
+  - id: track_contact_shaped_vel
+    name: Tracking Contacts Shaped Velocity
+    type: task
+    scale: 4.0
+    equation: sum_over_feet( c_d * (1 - exp(-||v_f||^2 / sigma_gv)) )
+    notes: Rewards low foot velocity during stance (contact) phases. Positive scale with a term that rises toward 1 when feet are still while in contact.
+
+checks:
+  - Scale values are copied as printed in Table I; verify digits against the PDF.
+  - Constants sigma_t, sigma_yaw, sigma_gv, and the contact indicators c_f, c_s, c_d are not defined in the extracted source text.
+  - Equations were reconstructed from a garbled conversion and the surrounding prose; treat them as close approximations.

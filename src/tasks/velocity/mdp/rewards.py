@@ -40,6 +40,92 @@ def track_linear_velocity(
   return torch.exp(-lin_vel_error / std**2)
 
 
+def track_linear_velocity_v4(
+  env: ManagerBasedRlEnv,
+  sigma: float,
+  threshold: float,
+  command_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """V4 planar velocity tracking kernel with a negative large-error tail."""
+  asset: Entity = env.scene[asset_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None, f"Command '{command_name}' not found."
+  error = torch.linalg.vector_norm(
+    command[:, :2] - asset.data.root_link_lin_vel_b[:, :2], dim=1
+  )
+  return torch.exp(-torch.square(error) / sigma) - 2.0 * torch.clamp(error - threshold, min=0.0)
+
+
+def track_angular_velocity_v4(
+  env: ManagerBasedRlEnv,
+  sigma: float,
+  threshold: float,
+  command_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """V4 yaw-rate tracking kernel with a negative large-error tail."""
+  asset: Entity = env.scene[asset_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None, f"Command '{command_name}' not found."
+  error = torch.abs(command[:, 2] - asset.data.root_link_ang_vel_b[:, 2])
+  return torch.exp(-torch.square(error) / sigma) - 2.0 * torch.clamp(error - threshold, min=0.0)
+
+
+def alive_moving(
+  env: ManagerBasedRlEnv,
+  eps_cmd: float,
+  v_min: float,
+  command_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward motion, and penalize standing still only under an active command."""
+  asset: Entity = env.scene[asset_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None, f"Command '{command_name}' not found."
+  command_active = (torch.linalg.vector_norm(command[:, :2], dim=1) > eps_cmd).float()
+  speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_b[:, :2], dim=1)
+  return command_active * (2.0 * torch.tanh(speed / v_min) - 1.0)
+
+
+def base_height_v4(
+  env: ManagerBasedRlEnv,
+  target: float,
+  deadband: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  error = torch.abs(asset.data.root_link_pos_w[:, 2] - target) - deadband
+  return torch.square(torch.clamp(error, min=0.0))
+
+
+def lin_vel_z_l2(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  return torch.square(asset.data.root_link_lin_vel_b[:, 2])
+
+
+def feet_stance_time(
+  env: ManagerBasedRlEnv,
+  stance_limit: float,
+  sensor_name: str,
+) -> torch.Tensor:
+  sensor: ContactSensor = env.scene[sensor_name]
+  return torch.clamp(sensor.data.current_contact_time - stance_limit, min=0.0).sum(dim=1)
+
+
+def undesired_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+  try:
+    sensor: ContactSensor = env.scene[sensor_name]
+  except KeyError:
+    return torch.zeros(env.num_envs, device=env.device)
+  if sensor.data.found is None:
+    return torch.zeros(env.num_envs, device=env.device)
+  return sensor.data.found.reshape(env.num_envs, -1).any(dim=1).float()
+
+
 def track_angular_velocity(
   env: ManagerBasedRlEnv,
   std: float,
@@ -160,6 +246,32 @@ def feet_air_time(
   return reward
 
 
+def feet_air_time_v4(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  threshold: float = 0.5,
+  command_name: str | None = None,
+  command_threshold: float = 0.1,
+) -> torch.Tensor:
+  """Reward air time only when a foot makes first contact.
+
+  This is the v4 touchdown term: ``sum((t_air - 0.5) * first_contact)``.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  first_contact = sensor.compute_first_contact(dt=env.step_dt)
+  reward = torch.sum(
+    (sensor.data.current_air_time - threshold) * first_contact.float(), dim=1
+  )
+  if command_name is not None:
+    command = env.command_manager.get_command(command_name)
+    if command is not None:
+      active = (
+        torch.linalg.vector_norm(command[:, :2], dim=1) > command_threshold
+      ).float()
+      reward *= active
+  return reward
+
+
 def feet_clearance(
   env: ManagerBasedRlEnv,
   target_height: float,
@@ -272,6 +384,8 @@ def feet_slip(
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Penalize foot sliding (xy velocity while in contact)."""
+  if not asset_cfg.site_ids:
+    return torch.zeros(env.num_envs, device=env.device)
   asset: Entity = env.scene[asset_cfg.name]
   contact_sensor: ContactSensor = env.scene[sensor_name]
   command = env.command_manager.get_command(command_name)
