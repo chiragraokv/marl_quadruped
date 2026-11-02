@@ -27,6 +27,7 @@ class EvalARSConfig:
   num_episodes: int = 64
   device: str = "cuda:0"
   seed: int = 123
+  landing_gain_scale: float | None = None
 
 
 def main(args: EvalARSConfig) -> None:
@@ -42,6 +43,10 @@ def main(args: EvalARSConfig) -> None:
   acro = cfg.actions["sagittal_pd"].acrobatics
   if acro.stage != "ars":
     raise ValueError("eval_ars.py requires an ARS task ID")
+  if args.landing_gain_scale is not None:
+    if not 0.2 <= args.landing_gain_scale <= 0.8:
+      raise ValueError("landing_gain_scale must be between 0.2 and 0.8")
+    acro.landing_gain_scale = args.landing_gain_scale
   cfg.scene.num_envs = args.num_episodes
   env = ManagerBasedRlEnv(cfg=cfg, device=device)
   theta = torch.cat((policy["W"].reshape(-1), policy["b"])).to(device)

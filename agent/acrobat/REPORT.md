@@ -11,8 +11,10 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 - ARS launch smoke: one iteration, two directions/top one (four environments), wrote best/last policy checkpoints; perturbed return mean `0.98253`, max `1.02109`. This is not the Gate 3 success evaluation.
 - PPO launch smoke: one imitation iteration at 64 env using the ARS checkpoint, then one refine iteration at 64 env — both completed and logged rewards/checkpoints. This is not the Gate 4 evaluation.
 - In-place ARS 500-iteration run at 64 env — best training eval return `0.119`, maximum in-run jump success `46.9%`; final eval success `18.8%`. Fresh 64-episode evaluation of the saved best-return checkpoint: mean height `0.364 m`, mean displacement `0.121 m`, jump success `54.7%`, early termination `45.3%` (all illegal-contact except none due fall/tilt).
+- Higher-exploration in-place ARS run (`nu=0.1`, seed 44, 32 directions/64 env, 500 iterations) — iteration 499 noisy training evaluation: jump success `64.1%`, mean height gain `0.194 m`. Independent play-mode evaluation with observation noise disabled, 64 episodes/seed 123: best-return checkpoint success `43.8%`, mean height `0.355 m` (gain `0.131 m`), early termination `56.3%`; final checkpoint success `42.2%`, mean height `0.351 m` (gain `0.127 m`), early termination `57.8%`. All early terminations were illegal contacts; fall and tilt were zero. Gate 3 remains below 80%.
 - Forward ARS 500-iteration run at 64 env — best mean displacement `0.224 m`, best generic flight success `51.6%`; final mean displacement `0.205 m`, final flight success `34.4%`. Fresh 64-episode evaluation of the saved best-return checkpoint: mean height `0.332 m`, mean displacement `0.138 m`, distance success at ≥0.3 m `26.6%`, early termination `75.0%` (73.4% illegal contact, 1.6% tilt).
 - `scripts/eval_ars.py` independently evaluated each saved policy on exactly 64 environments. It rejects values over 500.
+- Evaluator cap check: `--num-episodes 501` raised `ValueError: num_episodes must be between 1 and 500` before environment construction.
 - Stage 2 imitation and refine each constructed and stepped in one-env smoke tests.
 - All environment counts used during tests were 64 or fewer. No test exceeded the user's 500-environment limit.
 
@@ -21,9 +23,9 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 | Gate | Status | Evidence / remaining work |
 |---|---|---|
 | 0 Recon | Passed | Findings in repository `NOTES.md`; flat task ran 2 iterations at 64 env. |
-| 1 Pure math | Passed | Pure tests are included in the 14-pass suite. |
+| 1 Pure math | Passed | Pure tests are included in the 15-pass suite. |
 | 2 Environment sanity | Passed with deviation | Stand, zero/random, scripted jump, replay and terminal branches checked. GUI playback not run. A short timeout scores about 0.13–0.16 from reset settling overshoot. |
-| 3 ARS learning | Not passed | Both motions completed 500 iterations at 64 env. Fresh 64-episode evals of best-return checkpoints: in-place jump success 54.7%; forward distance success 26.6% at ≥0.3 m. Required threshold is 80%. |
+| 3 ARS learning | Not passed | In-place and forward default-exploration runs missed the gate (fresh play-mode success 54.7% and distance success 26.6%). A higher-exploration in-place run reached 64.1% only in its noisy final training evaluation; fresh noise-free play-mode success was 43.8% for best-return and 42.2% for final checkpoint. Height gain exceeded 0.05 m, but success remained below 80%. |
 | 4 PPO learning | Not passed | Only one iteration per stage; no 150-iteration imitation or 256-episode comparison. |
 | 5 Soft / randomization | Not started | Explicitly gated on Gate 4. |
 | 6 Back-flip / pronking | Not started | Optional and gated on prior stages. |
@@ -39,4 +41,6 @@ Every implementation deviation and recon detail is recorded in repository [`NOTE
 3. No GUI viewer or two-stage convenience wrapper was added; simulator manager paths and separate documented commands cover smoke and training workflows.
 4. Pytest was absent from the venv and installed from the local cache; plugin autoload must be disabled because the installed AnyIO plugin conflicts with the old pytest version.
 
-Existing user edits in `scripts/train.py` and `src/tasks/velocity/rl/runner.py` were present and left untouched. Python import also changed a tracked `__pycache__` bytecode file; it is unrelated to the implementation and should be restored by the repository owner if desired.
+5. The plan's first suggested ARS tuning step for weak learning was tested: raising exploration `nu` from `0.05` to `0.1` for a full 500-iteration in-place run. It improved the final noisy training evaluation but not the independent noise-free evaluation, so Gate 3 is still not met. Further stages remain unstarted under the explicit gate ordering.
+
+Existing user edits in `scripts/train.py` and `src/tasks/velocity/rl/runner.py` were present and left untouched. Python imports changed a tracked `__pycache__` bytecode file during verification; it was restored, and generated untracked cache directories were removed.
