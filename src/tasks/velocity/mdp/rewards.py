@@ -57,6 +57,17 @@ def track_linear_velocity_v4(
   return torch.exp(-torch.square(error) / sigma) - 2.0 * torch.clamp(error - threshold, min=0.0)
 
 
+def speed_proxy(
+  env: ManagerBasedRlEnv,
+  v_cap: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """B1 proxy: reward speed magnitude instead of commanded-direction tracking."""
+  asset: Entity = env.scene[asset_cfg.name]
+  speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_b[:, :2], dim=1)
+  return torch.clamp(speed, min=0.0, max=v_cap) / v_cap
+
+
 def track_angular_velocity_v4(
   env: ManagerBasedRlEnv,
   sigma: float,

@@ -260,8 +260,10 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
 
   rewards = {
     "track_lin_vel_xy": RewardTermCfg(
-      func=mdp.track_linear_velocity_v4, weight=1.5,
-      params={"command_name": "twist", "sigma": 0.25, "threshold": 0.2},
+      # B1 proxy: train on speed magnitude, while the runner evaluates the
+      # original commanded-direction tracking reward separately.
+      func=mdp.speed_proxy, weight=1.5,
+      params={"v_cap": 1.0},
     ),
     "track_ang_vel_z": RewardTermCfg(
       func=mdp.track_angular_velocity_v4, weight=0.75,

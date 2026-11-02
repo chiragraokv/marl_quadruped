@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import tyro
+import wandb
 
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 from mjlab.rl import MjlabOnPolicyRunner, RslRlBaseRunnerCfg, RslRlVecEnvWrapper
@@ -118,6 +119,26 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   agent_cfg = asdict(cfg.agent)
   env_cfg = asdict(cfg.env)
 
+  # Keep the exact reward weights visible in W&B as a flat, searchable config.
+  # The environment config is also uploaded by RSL-RL, but this makes reward
+  # comparisons across velocity runs much easier.
+  if task_id.startswith("Velocity-") or "/velocity/" in task_id.lower() or "velocity" in task_id.lower():
+    agent_cfg["reward_weights"] = {
+      name: float(term.weight) for name, term in cfg.env.rewards.items()
+    }
+    agent_cfg["true_reward_weights"] = dict(agent_cfg["reward_weights"])
+    agent_cfg["true_reward_weights"]["track_lin_vel_xy"] = 1.5
+    agent_cfg["reward_tags"] = {
+      name: ("proxy" if name == "track_lin_vel_xy" else "shared")
+      for name in cfg.env.rewards
+    }
+    agent_cfg["reward_tags"]["track_lin_vel_xy_true"] = "true"
+    agent_cfg["reward_logging"] = {
+      "proxy": "B1 speed proxy plus shared terms; used for PPO",
+      "true": "scaled commanded linear velocity tracking plus shared terms; evaluation only",
+      "terms": "Reward/<proxy|shared|true>/{weighted|raw}/<term>",
+    }
+
   runner_cls = load_runner_cls(task_id)
   if runner_cls is None:
     runner_cls = MjlabOnPolicyRunner
@@ -134,6 +155,19 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   if rank == 0:
     dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
     dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
+
+  # Older rsl_rl passes ``start_method`` to wandb.Settings. Newer W&B
+  # versions reject that removed setting, so discard it at the compatibility
+  # boundary instead of modifying the installed virtualenv package.
+  if str(agent_cfg.get("logger", "")).lower() == "wandb":
+    settings_cls = wandb.Settings
+
+    class _CompatibleWandbSettings(settings_cls):
+      def __init__(self, *args, **kwargs):
+        kwargs.pop("start_method", None)
+        super().__init__(*args, **kwargs)
+
+    wandb.Settings = _CompatibleWandbSettings
 
   runner.learn(
     num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=True

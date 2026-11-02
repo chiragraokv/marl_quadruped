@@ -1,5 +1,9 @@
 # Reward V5: coding-agent plan
 
+# Test on non marl project:
+works pretty good!!
+
+
 Status: design only. Do not treat this document as an implemented reward or as
 evidence that V5 improves gait. Implement and measure it in the MASQ project.
 

@@ -40,6 +40,8 @@ def unitree_as2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="as2_velocity",
+    logger="wandb",
+    wandb_project="marl_quadruped",
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=10001,
