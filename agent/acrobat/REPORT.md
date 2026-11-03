@@ -7,6 +7,7 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 ## Verification
 
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./.venv/bin/python -m pytest -q tests/acrobatics` — **16 passed**. Covers pure reward/ARS/mapping/phase tests, simulator standing/finite-action/scripted-jump/terminal-reward/Stage 2 environment smoke paths, and reward-free play configs.
+- `scripts/play.py` zero and random agents each launched the Stage 1 task in Viser with one environment; bounded 12 s sessions reached the viewer and had no step exceptions.
 - Flat-task regression: `scripts/train.py Unitree-Go2-Flat --env.scene.num-envs=64 --agent.max-iterations=2` — completed with exit code 0.
 - ARS launch smoke: one iteration, two directions/top one (four environments), wrote best/last policy checkpoints; perturbed return mean `0.98253`, max `1.02109`. This is not the Gate 3 success evaluation.
 - PPO launch smoke: one imitation iteration at 64 env using the ARS checkpoint, then one refine iteration at 64 env — both completed and logged rewards/checkpoints. This is not the Gate 4 evaluation.
@@ -25,7 +26,7 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 |---|---|---|
 | 0 Recon | Passed | Findings in repository `NOTES.md`; flat task ran 2 iterations at 64 env. |
 | 1 Pure math | Passed | Pure tests are included in the 16-pass suite. |
-| 2 Environment sanity | Passed with deviation | Stand, zero/random, scripted jump, replay, terminal branches, and Stage 2 imitation/refine playback were checked. ARS dummy-agent GUI playback was not run. A short timeout scores about 0.13–0.16 from reset settling overshoot. |
+| 2 Environment sanity | Passed with deviation | Stand, zero/random, scripted jump, replay, terminal branches, and Stage 1 zero/random plus Stage 2 imitation/refine playback were checked. A short timeout scores about 0.13–0.16 from reset settling overshoot. |
 | 3 ARS learning | Not passed | In-place and forward default-exploration runs missed the gate (fresh play-mode success 54.7% and distance success 26.6%). A higher-exploration in-place run reached 64.1% only in its noisy final training evaluation; fresh noise-free play-mode success was 43.8% for best-return and 42.2% for final checkpoint. Height gain exceeded 0.05 m, but success remained below 80%. |
 | 4 PPO learning | Not passed | Only one iteration per stage; no 150-iteration imitation or 256-episode comparison. Both saved smoke policies load and run through standard play CLI. |
 | 5 Soft / randomization | Not started | Explicitly gated on Gate 4. |
@@ -39,7 +40,7 @@ Every implementation deviation and recon detail is recorded in repository [`NOTE
 
 1. Raised per-joint PD gains to hip 40/2, thigh 50/3, calf 80/4 after the copied velocity gains failed the standing test. Measured settled height is about 0.224 m.
 2. The plan's literal `h_bar / h_max` gives a standing robot nonzero jump score. The implementation normalizes height gain above `h_stand` instead; reset settling can still produce a small positive terminal value. The live test bounds it to `[0,1]` and tests failure versus timeout branches.
-3. No GUI viewer or two-stage convenience wrapper was added; simulator manager paths and separate documented commands cover smoke and training workflows.
+3. No custom viewer or two-stage convenience wrapper was added; playback uses the repository's existing Viser/native viewer, and training uses separate documented commands.
 4. Pytest was absent from the venv and installed from the local cache; plugin autoload must be disabled because the installed AnyIO plugin conflicts with the old pytest version.
 
 5. The plan's first suggested ARS tuning step for weak learning was tested: raising exploration `nu` from `0.05` to `0.1` for a full 500-iteration in-place run. It improved the final noisy training evaluation but not the independent noise-free evaluation, so Gate 3 is still not met. Further stages remain unstarted under the explicit gate ordering.
