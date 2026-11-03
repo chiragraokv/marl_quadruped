@@ -8,7 +8,7 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./.venv/bin/python -m pytest -q tests/acrobatics` — **16 passed**. Covers pure reward/ARS/mapping/phase tests, simulator standing/finite-action/scripted-jump/terminal-reward/Stage 2 environment smoke paths, and reward-free play configs.
 - `scripts/play.py` zero and random agents each launched the Stage 1 task in Viser with one environment; bounded 12 s sessions reached the viewer and had no step exceptions.
-- Flat-task regression: `scripts/train.py Unitree-Go2-Flat --env.scene.num-envs=64 --agent.max-iterations=2` — completed with exit code 0.
+- Flat-task regression: `scripts/train.py Unitree-Go2-Flat --env.scene.num-envs=64 --agent.max-iterations=2` — completed with exit code 0, including a rerun after the acrobatics playback fix.
 - ARS launch smoke: one iteration, two directions/top one (four environments), wrote best/last policy checkpoints; perturbed return mean `0.98253`, max `1.02109`. This is not the Gate 3 success evaluation.
 - PPO launch smoke: one imitation iteration at 64 env using the ARS checkpoint, then one refine iteration at 64 env — both completed and logged rewards/checkpoints. This is not the Gate 4 evaluation.
 - In-place ARS 500-iteration run at 64 env — best training eval return `0.119`, maximum in-run jump success `46.9%`; final eval success `18.8%`. Fresh 64-episode evaluation of the saved best-return checkpoint: mean height `0.364 m`, mean displacement `0.121 m`, jump success `54.7%`, early termination `45.3%` (all illegal-contact except none due fall/tilt).

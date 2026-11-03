@@ -54,7 +54,7 @@ This file records Phase 0 recon, verification gates, and every implementation de
 
 1. **Standing controller gains and home height:** copied velocity-task gains caused the robot to collapse on initial touchdown in the standing test. Per the plan's fallback, gains were increased to hip `40/2`, thigh `50/3`, calf `80/4` (kp/kd). A 10-second settling rollout measured `h_stand≈0.224 m`; the jump env now resets at that root height and uses `h_max=0.524 m`, `stage2_h_min=0.194 m`. This changes the entity's configured `z=0.32 m` only for the new acrobatics task; existing velocity tasks are untouched.
 
-2. **Gate 2 command form:** no GUI viewer was launched in the headless run. `--agent zero` and `--agent random` behavior was checked with direct manager-environment rollouts at one environment; finite observations/rewards were verified.
+2. **Gate 2 command form:** the initial smoke used direct manager-environment rollouts; the prescribed `scripts/play.py --agent zero` and `--agent random` commands were subsequently run in the repository's Viser viewer with one environment each. Direct rollouts verified finite observations/rewards; bounded CLI sessions reached the viewer without step exceptions.
 
 3. **Training depth:** ARS and PPO were tested with small smoke runs (4 and 64 envs, respectively) to verify code paths. The long learning gates and 256-episode evaluation are not claimed as passed. This is why Gates 3–5 remain incomplete and the optional soft/DR branch was not begun.
 
