@@ -103,7 +103,9 @@ def make_env_cfg(
   cfg.actions = {
     "sagittal_pd": SagittalPDActionCfg(entity_name="robot", acrobatics=acro),
   }
-  cfg.rewards = _reward_terms(stage, acro)
+  # Playback does not consume rewards. In particular, the imitation reward
+  # requires an ARS target path that is only supplied during PPO training.
+  cfg.rewards = {} if play else _reward_terms(stage, acro)
   cfg.terminations = {
     "time_out": TerminationTermCfg(func=time_out, time_out=True),
     "fall": TerminationTermCfg(func=terminations.fallen, params={"h_fall": acro.h_fall}),

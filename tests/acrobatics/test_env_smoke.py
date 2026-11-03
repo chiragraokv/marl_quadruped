@@ -3,6 +3,7 @@ import torch
 import src.tasks
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
+from src.tasks.acrobatics.env_cfg import make_env_cfg
 from src.tasks.acrobatics.mdp.sagittal import home_action
 
 
@@ -101,6 +102,11 @@ def test_ppo_stage_reward_configs_step(tmp_path):
       assert torch.isfinite(reward).all()
     finally:
       env.close()
+
+
+def test_play_configs_omit_training_rewards():
+  for stage in ("ars", "imitate", "refine"):
+    assert make_env_cfg(stage=stage, play=True).rewards == {}
 
 
 def test_terminal_reward_uses_same_step_termination_and_timeout():

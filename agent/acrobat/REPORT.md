@@ -6,7 +6,7 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 
 ## Verification
 
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./.venv/bin/python -m pytest -q tests/acrobatics` — **15 passed**. Covers pure reward/ARS/mapping/phase tests and simulator standing, finite-action, scripted-jump, terminal-reward, and Stage 2 environment smoke paths.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./.venv/bin/python -m pytest -q tests/acrobatics` — **16 passed**. Covers pure reward/ARS/mapping/phase tests, simulator standing/finite-action/scripted-jump/terminal-reward/Stage 2 environment smoke paths, and reward-free play configs.
 - Flat-task regression: `scripts/train.py Unitree-Go2-Flat --env.scene.num-envs=64 --agent.max-iterations=2` — completed with exit code 0.
 - ARS launch smoke: one iteration, two directions/top one (four environments), wrote best/last policy checkpoints; perturbed return mean `0.98253`, max `1.02109`. This is not the Gate 3 success evaluation.
 - PPO launch smoke: one imitation iteration at 64 env using the ARS checkpoint, then one refine iteration at 64 env — both completed and logged rewards/checkpoints. This is not the Gate 4 evaluation.
@@ -16,6 +16,7 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 - `scripts/eval_ars.py` independently evaluated each saved policy on exactly 64 environments. It rejects values over 500.
 - Evaluator cap check: `--num-episodes 501` raised `ValueError: num_episodes must be between 1 and 500` before environment construction.
 - Stage 2 imitation and refine each constructed and stepped in one-env smoke tests.
+- `scripts/play.py` loaded the one-iteration imitation and refine checkpoints and ran each in the Viser viewer with one environment; bounded 18 s/15 s sessions ended by timeout with no step exceptions. This verified playback compatibility, not learned performance.
 - All environment counts used during tests were 64 or fewer. No test exceeded the user's 500-environment limit.
 
 ## Gate status
@@ -23,10 +24,10 @@ The rigid Go2 acrobatics package, ARS training/play scripts, three-stage task re
 | Gate | Status | Evidence / remaining work |
 |---|---|---|
 | 0 Recon | Passed | Findings in repository `NOTES.md`; flat task ran 2 iterations at 64 env. |
-| 1 Pure math | Passed | Pure tests are included in the 15-pass suite. |
-| 2 Environment sanity | Passed with deviation | Stand, zero/random, scripted jump, replay and terminal branches checked. GUI playback not run. A short timeout scores about 0.13–0.16 from reset settling overshoot. |
+| 1 Pure math | Passed | Pure tests are included in the 16-pass suite. |
+| 2 Environment sanity | Passed with deviation | Stand, zero/random, scripted jump, replay, terminal branches, and Stage 2 imitation/refine playback were checked. ARS dummy-agent GUI playback was not run. A short timeout scores about 0.13–0.16 from reset settling overshoot. |
 | 3 ARS learning | Not passed | In-place and forward default-exploration runs missed the gate (fresh play-mode success 54.7% and distance success 26.6%). A higher-exploration in-place run reached 64.1% only in its noisy final training evaluation; fresh noise-free play-mode success was 43.8% for best-return and 42.2% for final checkpoint. Height gain exceeded 0.05 m, but success remained below 80%. |
-| 4 PPO learning | Not passed | Only one iteration per stage; no 150-iteration imitation or 256-episode comparison. |
+| 4 PPO learning | Not passed | Only one iteration per stage; no 150-iteration imitation or 256-episode comparison. Both saved smoke policies load and run through standard play CLI. |
 | 5 Soft / randomization | Not started | Explicitly gated on Gate 4. |
 | 6 Back-flip / pronking | Not started | Optional and gated on prior stages. |
 
