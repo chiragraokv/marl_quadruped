@@ -1,0 +1,151 @@
+# Full reward structure for a quadruped transverse gallop.
+# Same format as the original config; gait clock and curriculum added at the top.
+
+gait_clock:
+  # phi_(t+1) = (phi_t + dt / T_gait) mod 1, randomized per env at reset.
+  # Add sin(2*pi*phi), cos(2*pi*phi) to the policy observations.
+  T_gait: 0.40            # s, tune 0.35 to 0.45
+  duty: 0.33              # stance fraction per foot (< 0.5 guarantees suspension)
+  # Transverse gallop touchdown order: RL -> RR -> FL -> FR
+  offsets: {RL: 0.0, RR: 0.1, FL: 0.5, FR: 0.6}
+  # Rotary gallop instead: {RL: 0.0, RR: 0.1, FR: 0.5, FL: 0.6}
+  # Target contact: c_star_i(phi) = 1[((phi - offset_i) mod 1) < duty]
+  # Resulting timing at T=0.40, duty=0.33: stance ~0.13 s, foot swing ~0.27 s,
+  # whole-body flight ~0.04 s, twice per cycle.
+  # Soft gate on command speed (smooth ramp, avoids a hard switch during training):
+  #   w_gallop = clip((||v_cmd_xy|| - v_lo) / (v_hi - v_lo), 0, 1)
+  v_lo: 1.5               # m/s, tune to robot size
+  v_hi: 2.5               # m/s
+
+rewards:
+  # --- Task ---
+  - id: track_lin_vel_xy
+    type: task
+    scale: 1.5
+    equation: "exp(-e^2 / sigma_lin) - 2.0 * max(0, e - thr_lin)"
+    notes: "e = ||v_cmd_xy - v_b_xy|| (m/s). thr_lin ~ 0.2 m/s. sigma_lin ~ 0.25."
+
+  - id: track_ang_vel_z
+    type: task
+    scale: 0.75
+    equation: "exp(-e_yaw^2 / sigma_yaw) - 2.0 * max(0, e_yaw - thr_yaw)"
+    notes: "e_yaw = |w_cmd_z - w_b_z| (rad/s). thr_yaw ~ 0.2 rad/s. sigma_yaw ~ 0.25."
+
+  - id: alive_moving
+    type: task
+    scale: 0.5
+    equation: "1[||v_cmd_xy|| > eps_cmd] * (2 * tanh(||v_b_xy|| / v_min) - 1)"
+    notes: "eps_cmd ~ 0.1 m/s, v_min ~ 0.1 m/s. Unchanged from the original."
+
+  # --- Gallop gait (new) ---
+  - id: gallop_contact_schedule
+    type: gait
+    scale: 1.0
+    equation: "w_gallop * (1/4) * sum_i (2 * 1[contact_i == c_star_i(phi)] - 1)"
+    notes: "Range -1 (all feet wrong) to +1 (all feet match), scaled by the soft speed gate. Main gait-shaping term."
+
+  - id: gallop_suspension
+    type: gait
+    scale: 0.3
+    equation: "w_gallop * 1[no feet in contact] * 1[all c_star_i(phi) == 0]"
+    notes: "Rewards actual flight only during the scheduled flight windows. Stops the policy keeping a foot grounded to cheat the schedule."
+
+  - id: feet_air_time
+    type: gait
+    scale: 1.0
+    equation: "sum((t_air_i - 0.2) * first_contact_i)"
+    notes: "Threshold lowered from 0.5 s. Per-foot swing in gallop is ~0.25 s, so 0.5 s would punish every touchdown."
+
+  - id: feet_slip
+    type: gait
+    scale: -0.1
+    equation: "sum(contact_i * ||v_foot_i_xy||^2)"
+
+  - id: feet_stance_time
+    type: gait
+    scale: -0.05
+    equation: "sum(max(0, t_stance_i - stance_limit) for foot_i in contact)"
+    notes: "stance_limit ~ 0.4 s (was 1.0 to 1.5 s). Gallop stance is ~0.13 s, so this only catches a planted foot."
+
+  - id: undesired_contact
+    type: gait
+    scale: -1.0
+    equation: "count(nonfoot_ground_contact)"
+
+  - id: feet_impact_force
+    type: gait
+    scale: -0.0005
+    equation: "sum(max(0, ||F_foot_i|| - F_max)^2)"
+    notes: "Gallop landings are hard. F_max ~ 3 to 4x body weight (N). Keeps touchdowns survivable on hardware."
+
+  # --- Stability (relaxed for bounding motion) ---
+  - id: body_roll
+    type: stability
+    scale: -1.0
+    equation: "g_b_y^2"
+    notes: "Replaces body_orientation. Roll stays tightly penalized; pitch is allowed to swing."
+
+  - id: body_pitch_limit
+    type: stability
+    scale: -2.0
+    equation: "max(0, abs(g_b_x) - 0.35)^2"
+    notes: "Soft pitch bound (~20 deg). Only fires when pitch gets extreme."
+
+  - id: lin_vel_z
+    type: stability
+    scale: -0.3
+    equation: "v_b_z^2"
+    notes: "Was -2.0. Flight phase needs vertical motion."
+
+  - id: ang_vel_roll
+    type: stability
+    scale: -0.05
+    equation: "omega_b_x^2"
+
+  - id: ang_vel_pitch
+    type: stability
+    scale: -0.005
+    equation: "omega_b_y^2"
+    notes: "Replaces ang_vel_xy. Pitch rocking is part of the gait, so this is 10x weaker than roll."
+
+  - id: base_height
+    type: stability
+    scale: -5.0
+    equation: "max(0, abs(h_base - 0.30) - 0.06)^2"
+    notes: "Deadband widened from 0.03 to 0.06 m, scale halved."
+
+  # --- Regularization ---
+  - id: action_rate
+    type: regularization
+    scale: -0.005
+    equation: "||a_t - a_(t-1)||^2"
+    notes: "Halved from -0.01. Gallop needs fast, large leg swings."
+
+  - id: hip_deviation
+    type: regularization
+    scale: -0.1
+    equation: "sum_i (q_hip_abd_i - q_hip_abd_default)^2"
+    notes: "Keeps legs in the sagittal plane, which suits gallop."
+
+  - id: joint_torques
+    type: regularization
+    scale: -0.00002
+    equation: "||tau||^2"
+
+  - id: joint_acc
+    type: regularization
+    scale: -0.0000002
+    equation: "||qdd||^2"
+
+  - id: joint_pos_limits
+    type: regularization
+    scale: -1.0
+    equation: "sum(max(0, q_i - q_max_i) + max(0, q_min_i - q_i))"
+
+curriculum:
+  # Stage 1 (0 to ~30% of training): gate off, w_gallop = 1 at all speeds, schedule scale 1.5.
+  #   Gives the policy a clear gradient toward the pattern.
+  # Stage 2: anneal to the soft speed gate and drop schedule scale to 1.0.
+  # Command range: sample speeds well above v_hi, or the gait rarely activates.
+  # If velocity tracking degrades, cut gallop_contact_schedule to ~0.5.
+  # Below v_lo there is no gait reward, so the policy is free to walk or trot.

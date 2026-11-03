@@ -14,7 +14,9 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
-from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+from src.tasks.velocity.velocity_env_cfg import (
+  make_velocity_env_cfg,
+)
 
 TerrainType = Literal["rough", "obstacles"]
 

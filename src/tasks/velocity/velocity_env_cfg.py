@@ -33,6 +33,78 @@ from mjlab.viewer import ViewerConfig
 import src.tasks.velocity.mdp as mdp
 
 
+def enable_gallop_rewards(
+  cfg: ManagerBasedRlEnvCfg, max_foot_force: float
+) -> None:
+  """Enable the transverse gallop prior for a four-foot velocity config."""
+  gate_start_step = 72_000  # 30% of the standard 10,001-iteration run.
+  offsets = [0.6, 0.5, 0.1, 0.0]  # Foot order: FR, FL, RR, RL.
+  cfg.rewards["gallop_contact_schedule"] = RewardTermCfg(
+    func=mdp.gallop_contact_schedule,
+    weight=1.5,
+    params={
+      "period": 0.40,
+      "duty": 0.33,
+      "offsets": offsets,
+      "v_lo": 1.5,
+      "v_hi": 2.5,
+      "gate_start_step": gate_start_step,
+      "command_name": "twist",
+      "sensor_name": "feet_ground_contact",
+    },
+  )
+  cfg.rewards["gallop_suspension"] = RewardTermCfg(
+    func=mdp.gallop_suspension,
+    weight=0.3,
+    params={
+      "period": 0.40,
+      "duty": 0.33,
+      "offsets": offsets,
+      "v_lo": 1.5,
+      "v_hi": 2.5,
+      "gate_start_step": gate_start_step,
+      "command_name": "twist",
+      "sensor_name": "feet_ground_contact",
+    },
+  )
+  cfg.rewards["gallop_landing_impact"] = RewardTermCfg(
+    func=mdp.gallop_landing_impact,
+    weight=-0.0005,
+    params={"max_force": max_foot_force, "sensor_name": "feet_ground_contact"},
+  )
+  cfg.rewards["feet_air_time"].params["threshold"] = 0.2
+  cfg.rewards["feet_stance_time"].params["stance_limit"] = 0.4
+  cfg.rewards["pose"].weight = 0.0
+  cfg.rewards["body_orientation_l2"].weight = 0.0
+  cfg.rewards["body_ang_vel"].weight = 0.0
+  cfg.rewards["angular_momentum"].weight = 0.0
+  cfg.rewards["body_roll_l2"].weight = -1.0
+  cfg.rewards["body_pitch_limit"].weight = -2.0
+  cfg.rewards["ang_vel_roll"].weight = -0.05
+  cfg.rewards["ang_vel_pitch"].weight = -0.005
+  cfg.rewards["lin_vel_z"].weight = -0.3
+  cfg.rewards["base_height"].weight = -5.0
+  cfg.rewards["base_height"].params.update({"target": 0.30, "deadband": 0.06})
+  cfg.rewards["action_rate"].weight = -0.005
+  cfg.rewards["hip_deviation"].weight = -0.1
+  cfg.rewards["joint_torques"].weight = -0.00002
+  cfg.rewards["joint_acc"].weight = -0.0000002
+  cfg.rewards["joint_pos_limits"].weight = -1.0
+  cfg.curriculum["gallop_schedule_weight"] = CurriculumTermCfg(
+    func=mdp.reward_weight,
+    params={
+      "reward_name": "gallop_contact_schedule",
+      "weight_stages": [
+        {"step": 0, "weight": 1.5},
+        {"step": gate_start_step, "weight": 1.0},
+      ],
+    },
+  )
+  cfg.curriculum["command_vel"].params["velocity_stages"][-1].update(
+    {"step": gate_start_step, "lin_vel_x": (-1.0, 2.5)}
+  )
+
+
 def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create base velocity tracking task configuration."""
 
@@ -71,7 +143,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "phase": ObservationTermCfg(
       func=mdp.phase,
-      params={"period": 0.6, "command_name": "twist"},
+      params={"period": 0.4, "command_name": "twist"},
     ),
     "joint_pos": ObservationTermCfg(
       func=mdp.joint_pos_rel,
@@ -260,10 +332,8 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
 
   rewards = {
     "track_lin_vel_xy": RewardTermCfg(
-      # B1 proxy: train on speed magnitude, while the runner evaluates the
-      # original commanded-direction tracking reward separately.
-      func=mdp.speed_proxy, weight=1.5,
-      params={"v_cap": 1.0},
+      func=mdp.track_linear_velocity_v4, weight=1.5,
+      params={"command_name": "twist", "sigma": 0.25, "threshold": 0.2},
     ),
     "track_ang_vel_z": RewardTermCfg(
       func=mdp.track_angular_velocity_v4, weight=0.75,
@@ -346,6 +416,38 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     "undesired_contact": RewardTermCfg(func=mdp.undesired_contact, weight=-1.0,
       params={"sensor_name": "nonfoot_ground_touch"}),
     "lin_vel_z": RewardTermCfg(func=mdp.lin_vel_z_l2, weight=-2.0),
+    "body_roll_l2": RewardTermCfg(
+      func=mdp.body_roll_l2, weight=0.0,
+      params={"asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "body_pitch_limit": RewardTermCfg(
+      func=mdp.body_pitch_limit, weight=0.0,
+      params={"limit": 0.35, "asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "hip_deviation": RewardTermCfg(
+      func=mdp.hip_deviation, weight=0.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*hip.*",))},
+    ),
+    "ang_vel_roll": RewardTermCfg(
+      func=mdp.angular_velocity_axis_l2, weight=0.0,
+      params={"axis": 0, "asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "ang_vel_pitch": RewardTermCfg(
+      func=mdp.angular_velocity_axis_l2, weight=0.0,
+      params={"axis": 1, "asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "joint_torques": RewardTermCfg(
+      func=mdp.joint_torques_l2, weight=0.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
+    "joint_acc": RewardTermCfg(
+      func=mdp.joint_acc_l2, weight=0.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
+    "joint_pos_limits": RewardTermCfg(
+      func=mdp.joint_pos_limits, weight=0.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
   }
 
   ##

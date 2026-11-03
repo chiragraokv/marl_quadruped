@@ -14,7 +14,10 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
-from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+from src.tasks.velocity.velocity_env_cfg import (
+  enable_gallop_rewards,
+  make_velocity_env_cfg,
+)
 
 TerrainType = Literal["rough", "obstacles"]
 
@@ -24,6 +27,7 @@ def unitree_go2_rough_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create Unitree Go2 rough terrain velocity configuration."""
   cfg = make_velocity_env_cfg()
+  enable_gallop_rewards(cfg, max_foot_force=525.0)
 
   cfg.sim.mujoco.ccd_iterations = 500
   cfg.sim.contact_sensor_maxmatch = 500

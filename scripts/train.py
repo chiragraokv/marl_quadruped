@@ -126,17 +126,17 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     agent_cfg["reward_weights"] = {
       name: float(term.weight) for name, term in cfg.env.rewards.items()
     }
-    agent_cfg["true_reward_weights"] = dict(agent_cfg["reward_weights"])
-    agent_cfg["true_reward_weights"]["track_lin_vel_xy"] = 1.5
+    agent_cfg["real_reward_weights"] = dict(agent_cfg["reward_weights"])
+    agent_cfg["real_reward_weights"]["track_lin_vel_xy"] = 1.5
     agent_cfg["reward_tags"] = {
       name: ("proxy" if name == "track_lin_vel_xy" else "shared")
       for name in cfg.env.rewards
     }
-    agent_cfg["reward_tags"]["track_lin_vel_xy_true"] = "true"
+    agent_cfg["reward_tags"]["track_lin_vel_xy_real"] = "real"
     agent_cfg["reward_logging"] = {
       "proxy": "B1 speed proxy plus shared terms; used for PPO",
-      "true": "scaled commanded linear velocity tracking plus shared terms; evaluation only",
-      "terms": "Reward/<proxy|shared|true>/{weighted|raw}/<term>",
+      "real": "scaled commanded linear velocity tracking plus shared terms; evaluation only",
+      "terms": "Reward/<proxy|shared|real>/<term>",
     }
 
   runner_cls = load_runner_cls(task_id)

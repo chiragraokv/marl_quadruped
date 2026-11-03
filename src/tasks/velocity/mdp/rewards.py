@@ -13,6 +13,8 @@ from mjlab.utils.lab_api.string import (
   resolve_matching_names_values,
 )
 
+from .gait_clock import gait_phase
+
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
@@ -333,6 +335,118 @@ def feet_gait(
             scale = (total_command > command_threshold).float()
             reward *= scale
     return reward
+
+
+def gallop_contact_schedule(
+  env: ManagerBasedRlEnv,
+  period: float,
+  duty: float,
+  offsets: list[float],
+  v_lo: float,
+  v_hi: float,
+  gate_start_step: int,
+  command_name: str,
+  sensor_name: str,
+) -> torch.Tensor:
+  """Match four-foot contacts to a speed-gated transverse gallop clock."""
+  sensor: ContactSensor = env.scene[sensor_name]
+  assert sensor.data.found is not None
+  contact = sensor.data.found.reshape(env.num_envs, -1) > 0
+  if contact.shape[1] != len(offsets):
+    raise ValueError(
+      f"Gallop expects {len(offsets)} foot contacts, got {contact.shape[1]}"
+    )
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  speed = torch.linalg.vector_norm(command[:, :2], dim=1)
+  if env.common_step_counter < gate_start_step:
+    gate = torch.ones_like(speed)
+  else:
+    gate = torch.clamp((speed - v_lo) / max(v_hi - v_lo, 1e-6), 0.0, 1.0)
+  phase = gait_phase(env, period)
+  offsets_t = torch.as_tensor(offsets, device=env.device, dtype=phase.dtype)
+  target_stance = ((phase[:, None] - offsets_t[None, :]).remainder(1.0) < duty)
+  match = (contact == target_stance).float().mean(dim=1)
+  return gate * (2.0 * match - 1.0)
+
+
+def gallop_suspension(
+  env: ManagerBasedRlEnv,
+  period: float,
+  duty: float,
+  offsets: list[float],
+  v_lo: float,
+  v_hi: float,
+  gate_start_step: int,
+  command_name: str,
+  sensor_name: str,
+) -> torch.Tensor:
+  """Reward flight only during scheduled all-feet-swing intervals."""
+  sensor: ContactSensor = env.scene[sensor_name]
+  assert sensor.data.found is not None
+  contact = sensor.data.found.reshape(env.num_envs, -1) > 0
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  speed = torch.linalg.vector_norm(command[:, :2], dim=1)
+  if env.common_step_counter < gate_start_step:
+    gate = torch.ones_like(speed)
+  else:
+    gate = torch.clamp((speed - v_lo) / max(v_hi - v_lo, 1e-6), 0.0, 1.0)
+  phase = gait_phase(env, period)
+  offsets_t = torch.as_tensor(offsets, device=env.device, dtype=phase.dtype)
+  target_stance = ((phase[:, None] - offsets_t[None, :]).remainder(1.0) < duty)
+  scheduled_flight = ~target_stance.any(dim=1)
+  actual_flight = ~contact.any(dim=1)
+  return gate * (scheduled_flight & actual_flight).float()
+
+
+def gallop_landing_impact(
+  env: ManagerBasedRlEnv, max_force: float, sensor_name: str,
+) -> torch.Tensor:
+  """Penalize squared foot forces above a landing force limit."""
+  sensor: ContactSensor = env.scene[sensor_name]
+  assert sensor.data.force is not None
+  force = sensor.data.force.reshape(env.num_envs, -1, 3)
+  force_magnitude = torch.linalg.vector_norm(force, dim=-1)
+  return torch.square(torch.clamp(force_magnitude - max_force, min=0.0)).sum(dim=1)
+
+
+def body_roll_l2(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG
+) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  return torch.square(asset.data.projected_gravity_b[:, 1])
+
+
+def body_pitch_limit(
+  env: ManagerBasedRlEnv,
+  limit: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  pitch_error = torch.clamp(
+    torch.abs(asset.data.projected_gravity_b[:, 0]) - limit, min=0.0
+  )
+  return torch.square(pitch_error)
+
+
+def hip_deviation(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  error = (
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  return torch.square(error).sum(dim=1)
+
+
+def angular_velocity_axis_l2(
+  env: ManagerBasedRlEnv,
+  axis: int,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize one body-frame root angular velocity component."""
+  asset: Entity = env.scene[asset_cfg.name]
+  return torch.square(asset.data.root_link_ang_vel_b[:, axis])
 
 
 class feet_swing_height:
